@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import feedparser
-from transformers import pipeline
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -10,16 +9,25 @@ import time
 import os
 import sqlite3
 from datetime import datetime
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 # Configuración de página ultra-wide corporativa y futurista
-st.set_page_config(page_title="PULPOFX IA v6.0 - Pulpotrader Pro", page_icon="🐙", layout="wide")
+st.set_page_config(page_title="PULPOFX IA v6.1 - Pulpotrader Pro", page_icon="🐙", layout="wide")
+
+# Descarga del recurso ultra-ligero para análisis de sentimiento
+@st.cache_resource
+def descargar_vader():
+    nltk.download('vader_lexicon', quiet=True)
+    return SentimentIntensityAnalyzer()
+
+sia = descargar_vader()
 
 # Estilos CSS avanzados para interfaz Cyberpunk/Tecnológica
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;700&display=swap');
     
-    /* Fuentes globales */
     html, body, [class*="css"] {
         font-family: 'Rajdhani', sans-serif;
     }
@@ -27,7 +35,6 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important;
     }
     
-    /* Contenedores de Neón Tecnológico */
     .tech-card {
         background-color: #0d1117;
         border: 1px solid #30363d;
@@ -83,10 +90,6 @@ def cargar_memoria_db():
 if 'capital' not in st.session_state: cargar_memoria_db()
 if 'trade_en_vivo' not in st.session_state: st.session_state.trade_en_vivo = None  
 
-if 'clasificador' not in st.session_state:
-    with st.spinner("Cargando cerebro de IA FinBERT... (esperá un momentico)"):
-        st.session_state.clasificador = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-
 def guardar_cuenta_db():
     conn = conectar_db()
     cursor = conn.cursor()
@@ -129,7 +132,7 @@ umbral_seguridad = st.sidebar.slider("FILTRO QUANT DE CONFLUENCIA (%)", 50, 80, 
 modo_simulacion = st.sidebar.toggle("🔬 IGNORAR FILTRO TÉCNICO (MODO TEST)", value=False)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("<div style='text-align: center; color: #57606f; font-family:monospace; font-size:11px;'>PULPOTRADER ENGINE v6.0<br>DESIGNED BY RENNY GARCÍA</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div style='text-align: center; color: #57606f; font-family:monospace; font-size:11px;'>PULPOTRADER ENGINE v6.1<br>DESIGNED BY RENNY GARCÍA</div>", unsafe_allow_html=True)
 
 # --- HEADER ULTRA TECNOLÓGICO ---
 if os.path.exists("logo.png"):
@@ -152,11 +155,9 @@ if not datos.empty:
     if isinstance(datos.columns, pd.MultiIndex): datos.columns = [col[0] for col in datos.columns]
     datos = datos.reset_index().rename(columns={'Datetime': 'Fecha', 'Date': 'Fecha'})
     
-    # EMAs estructurales
     datos['EMA_9'] = datos['Close'].ewm(span=9, adjust=False).mean()
     datos['EMA_21'] = datos['Close'].ewm(span=21, adjust=False).mean()
     
-    # AFINACIÓN MATEMÁTICA DEL RSI (Cálculo Algorítmico Puro de Precisión)
     delta = datos['Close'].diff()
     up = delta.clip(lower=0)
     down = -delta.clip(upper=0)
@@ -165,7 +166,6 @@ if not datos.empty:
     rs = ema_up / ema_down
     datos['RSI'] = 100 - (100 / (1 + rs))
     
-    # Bandas de Bollinger y MACD
     datos['BB_Media'] = datos['Close'].rolling(window=20).mean()
     datos['BB_Std'] = datos['Close'].rolling(window=20).std()
     datos['BB_Superior'] = datos['BB_Media'] + (datos['BB_Std'] * 2)
@@ -174,12 +174,11 @@ if not datos.empty:
     datos['MACD_Señal'] = datos['MACD'].ewm(span=9, adjust=False).mean()
     datos['MACD_Hist'] = datos['MACD'] - datos['MACD_Señal']
     
-    # AFINACIÓN MATEMÁTICA DE FIBONACCI (Detección de Fractales de Reversión)
     precio_max = float(datos['High'].max())
     precio_min = float(datos['Low'].min())
     rango_fibo = precio_max - precio_min
     fibo_618 = precio_max - (rango_fibo * 0.618)
-    fibo_786 = precio_max - (rango_fibo * 0.786) # Nivel institucional profundo
+    fibo_786 = precio_max - (rango_fibo * 0.786)
     
     precio_actual = float(datos['Close'].iloc[-1])
     rsi_actual = float(datos['RSI'].iloc[-1]) if not pd.isna(datos['RSI'].iloc[-1]) else 50.0
@@ -206,7 +205,7 @@ if st.button("⚡ ANALYZE AND COMPUTE STRATEGY RULES", use_container_width=True)
     
     if any(x in tex for x in ["fibo", "fibonacci", "fibonachi"]):
         pnts += 25
-        sug.append(f"🎯 <b>FIBONACCI MATRIX ACTIVE:</b> Calibración calibrada en la DB. Zona de rebote optimizada en los niveles institucionales 61.8% (${round(fibo_618,2)}) y 78.6% (${round(fibo_786,2)}).")
+        sug.append(f"🎯 <b>FIBONACCI MATRIX ACTIVE:</b> Calibración guardada. Zona de rebote optimizada en los niveles institucionales 61.8% (${round(fibo_618,2)}) y 78.6% (${round(fibo_786,2)}).")
     if "rsi" in tex:
         pnts += 15
         sug.append(f"📈 <b>RSI FILTER LOADED:</b> Analizador matemático de oscilación activo. RSI actual posicionado en {round(rsi_actual, 1)} ppts.")
@@ -216,22 +215,38 @@ if st.button("⚡ ANALYZE AND COMPUTE STRATEGY RULES", use_container_width=True)
     st.session_state.sugerencia_ia = "<br><br>".join(sug) if sug else "⚠️ <b>STRATEGY DEFAULTS:</b> Reglas guardadas por defecto en la base de datos de Pulpotrader."
     st.session_state.puntos_estrategia = pnts
     
-    # Guardamos en la base de datos local
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE cuenta SET estrategia=?, sugerencia=?, puntos=? WHERE id=1", (st.session_state.estrategia_activa, st.session_state.sugerencia_ia, st.session_state.puntos_estrategia))
-    conn.commit()
-    conn.close()
+    guardar_cuenta_db()
     st.success("¡Estrategia procesada y guardada permanentemente!")
     st.rerun()
 
 # =====================================================================
-# 3. FILTRO QUANT Y GESTIÓN DE RIESGO INSTITUCIONAL
+# 3. ANALISTA FUNDAMENTAL COMPACTO Y ULTRA-LIGHT
+# =====================================================================
+url_noticias = "https://finance.yahoo.com/news/rss"
+feed = feedparser.parse(url_noticias)
+titulares_filtrados = []
+es_forex = "=X" in activo_ticker
+keywords = ["forex", "fed", "dollar", "inflation"] if es_forex else ["bitcoin", "crypto", "ethereum", "solana"]
+
+for entrada in feed.entries:
+    if any(kw in entrada.title.lower() for kw in keywords):
+        titulares_filtrados.append(entrada.title)
+    if len(titulares_filtrados) == 2: break
+if not titulares_filtrados: titulares_filtrados = [e.title for e in feed.entries[:2]]
+
+sentimiento_acumulado = 0
+for t in titulares_filtrados:
+    scores = sia.polarity_scores(t)
+    sentimiento_acumulado += scores['compound']
+
+sentimiento_promedio = (sentimiento_acumulado / len(titulares_filtrados)) * 100 if titulares_filtrados else 0
+
+# =====================================================================
+# 4. FILTRO QUANT Y GESTIÓN DE RIESGO INSTITUCIONAL
 # =====================================================================
 ancho_bb = bb_sup_actual - bb_inf_actual
 posicion_bb = (precio_actual - bb_inf_actual) / ancho_bb if ancho_bb > 0 else 0.5
 
-# Algoritmo de dirección de órdenes
 if posicion_bb < 0.40 or (ema_9_actual > ema_21_actual and macd_hist_actual > 0 and rsi_actual < 68):
     direccion = "COMPRA (LONG)"
     base_prob = 50.0 + (1.0 - posicion_bb) * 12.0
@@ -239,14 +254,11 @@ else:
     direccion = "VENTA (SHORT)"
     base_prob = 50.0 + (posicion_bb) * 12.0
 
-# Penalización algorítmica por exceso de RSI (Protección de sobrecompra/sobreventa)
 if rsi_actual > 72 and direccion == "COMPRA (LONG)": base_prob -= 15.0
 elif rsi_actual < 28 and direccion == "VENTA (SHORT)": base_prob -= 15.0
 
-probabilidad_final = max(35.0, min(89.0, base_prob + (st.session_state.puntos_estrategia * 0.3)))
+probabilidad_final = max(35.0, min(89.0, base_prob + (sentimiento_promedio * 0.05) + (st.session_state.puntos_estrategia * 0.3)))
 
-# Parámetros de Orden
-es_forex = "=X" in activo_ticker
 volatilidad = precio_actual * (0.0015 if es_forex else 0.015)
 stop_loss = precio_actual - volatilidad if direccion == "COMPRA (LONG)" else precio_actual + volatilidad
 take_profit = precio_actual + (volatilidad * 2.0) if direccion == "COMPRA (LONG)" else precio_actual - (volatilidad * 2.0)
@@ -254,7 +266,6 @@ take_profit = precio_actual + (volatilidad * 2.0) if direccion == "COMPRA (LONG)
 riesgo_usd = st.session_state.capital * (riesgo_tolerable / 100.0)
 precision_fmt = ".5f" if es_forex else ".2f"
 
-# Cálculo de volumen institucional (Lotaje MT5)
 if es_forex:
     pips = volatilidad * 10000 if not "JPY" in activo_ticker else volatilidad * 100
     lotaje = riesgo_usd / (pips * 10) if pips > 0 else 0.01
@@ -263,19 +274,17 @@ else:
     lotaje_crypto = riesgo_usd / volatilidad if volatilidad > 0 else 0.001
     lotaje_str = f"{round(max(0.001, lotaje_crypto), 3)} UNIDADES"
 
-# Métricas
 total_trades = len(st.session_state.historial)
 ganados = sum(1 for t in st.session_state.historial if t['resultado'] == "GANADA")
 win_rate = (ganados / total_trades * 100) if total_trades > 0 else 0.0
 
 # =====================================================================
-# 4. DISTRIBUCIÓN DE CONTENEDORES DE NEÓN (DASHBOARD VISUAL V6.0)
+# 5. DISTRIBUCIÓN DE CONTENEDORES DE NEÓN (DASHBOARD VISUAL)
 # =====================================================================
 st.markdown("<br>", unsafe_allow_html=True)
 col_izq, col_der = st.columns([2, 1])
 
 with col_izq:
-    # Bloque de IA de Estrategia
     st.markdown(f"""
     <div class="tech-card" style="border-top: 3px solid #00ffd2;">
         <span style="color: #00ffd2; font-family: monospace; font-weight: bold; font-size: 12px;">[ IA COGNITIVE ENGINE ]</span>
@@ -283,7 +292,6 @@ with col_izq:
     </div>
     """, unsafe_allow_html=True)
     
-    # FICHA METATRADER 5 AVANZADA
     st.markdown("### 📋 METATRADER 5 ORDER PARAMETERS")
     clase_neon = "neon-buy" if direccion == "COMPRA (LONG)" else "neon-sell"
     color_dir = "#00ff87" if direccion == "COMPRA (LONG)" else "#ff3e3e"
@@ -334,7 +342,6 @@ with col_der:
     </div>
     """, unsafe_allow_html=True)
     
-    # Botón ejecutor
     aprobado = probabilidad_final >= umbral_seguridad
     if aprobado or modo_simulacion:
         if st.session_state.trade_en_vivo is None:
@@ -350,7 +357,7 @@ with col_der:
         st.warning(f"⚠️ CONFLUENCIA INSUFICIENTE: Filtro mínimo requerido ({umbral_seguridad}%) superior al peso analizado.")
 
 # =====================================================================
-# 5. SEGUIMIENTO ALGORÍTMICO DINÁMICO EN TIEMPO REAL (TICK BY TICK)
+# 6. SEGUIMIENTO ALGORÍTMICO DINÁMICO (TICK BY TICK)
 # =====================================================================
 if st.session_state.trade_en_vivo is not None:
     trade = st.session_state.trade_en_vivo
@@ -367,11 +374,9 @@ if st.session_state.trade_en_vivo is not None:
         delta_p = (trade['precio_entrada'] * 0.0018) * factor
         precio_movil += (delta_p if trade['tipo'] == "COMPRA (LONG)" else -delta_p)
         
-        # Evaluar toques estructurales
         toco_tp = (trade['tipo'] == "COMPRA (LONG)" and precio_movil >= trade['tp']) or (trade['tipo'] == "VENTA (SHORT)" and precio_movil <= trade['tp'])
         toco_sl = (trade['tipo'] == "COMPRA (LONG)" and precio_movil <= trade['sl']) or (trade['tipo'] == "VENTA (SHORT)" and precio_movil >= trade['sl'])
         
-        # Calcular PnL flotante matemático en vivo
         if trade['tipo'] == "COMPRA (LONG)":
             pnl_flotante_pct = ((precio_movil - trade['precio_entrada']) / trade['precio_entrada']) * 100
         else:
@@ -398,9 +403,6 @@ if st.session_state.trade_en_vivo is not None:
     exito = toco_tp if (toco_tp or toco_sl) else (random.randint(1, 100) <= trade['probabilidad'])
     resultado_final = "GANADA" if exito else "PERDIDA"
     
-    # Módulo de alerta para celular (Estructura lógica lista para inyección de Token)
-    # bot_telegram.send_message(chat_id, f"Trade ejecutado: {resultado_final}")
-    
     st.session_state.capital += (trade['riesgo_usd'] * 1.9) if exito else -trade['riesgo_usd']
     
     nuevo_t = {
@@ -409,7 +411,6 @@ if st.session_state.trade_en_vivo is not None:
         "resultado": resultado_final, "balance": f"${round(st.session_state.capital, 2)}"
     }
     
-    # Guardamos el trade en la DB local de la PC
     conn = conectar_db()
     cursor = conn.cursor()
     cursor.execute("INSERT INTO historial (fecha, activo, tipo, precio, riesgo, resultado, balance) VALUES (?, ?, ?, ?, ?, ?, ?)", (nuevo_t['fecha'], nuevo_t['activo'], nuevo_t['tipo'], nuevo_t['precio'], nuevo_t['riesgo'], nuevo_t['resultado'], nuevo_t['balance']))
@@ -431,7 +432,6 @@ fig.add_trace(go.Candlestick(x=datos['Fecha'], open=datos['Open'], high=datos['H
 fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Superior'], line=dict(color='rgba(0, 255, 210, 0.12)', width=1, dash='dot'), name="BB Sup"), row=1, col=1)
 fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Inferior'], line=dict(color='rgba(0, 255, 210, 0.12)', width=1, dash='dot'), name="BB Inf"), row=1, col=1)
 
-# Pintamos niveles cuánticos afinados de Fibonacci si están activos en la estrategia
 if any(x in st.session_state.estrategia_activa.lower() for x in ["fibo", "fibonacci", "fibonachi"]) and not datos.empty:
     fig.add_hline(y=precio_max, line_color="rgba(231, 76, 60, 0.2)", line_width=1, annotation_text="Fibo Max 0.0%", row=1, col=1)
     fig.add_hline(y=fibo_618, line_color="#00ff87", line_width=1.5, annotation_text="ZONA ORO 61.8%", row=1, col=1)
@@ -445,7 +445,6 @@ fig.add_trace(go.Bar(x=datos['Fecha'], y=datos['MACD_Hist'], marker_color=colore
 fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117", font=dict(color="#c9d1d9"), height=480, margin=dict(l=10, r=10, t=10, b=10))
 st.plotly_chart(fig, use_container_width=True)
 
-# --- BITÁCORA HISTÓRICA COMPLETA ---
 st.subheader("📋 HISTORICAL TRANSACTION LOG")
 if st.session_state.historial:
     st.dataframe(pd.DataFrame(st.session_state.historial), use_container_width=True)
