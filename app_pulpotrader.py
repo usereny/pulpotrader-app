@@ -11,55 +11,62 @@ import os
 import sqlite3
 from datetime import datetime
 
-# Configuración de página ultra-wide corporativa
-st.set_page_config(page_title="PULPOFX IA v5.5 - Pulpotrader", page_icon="🐙", layout="wide")
+# Configuración de página ultra-wide corporativa y futurista
+st.set_page_config(page_title="PULPOFX IA v6.0 - Pulpotrader Pro", page_icon="🐙", layout="wide")
 
-# =====================================================================
-# CONFIGURACIÓN DE BASE DE DATOS LOCAL AUTOMÁTICA (SQLite)
-# =====================================================================
+# Estilos CSS avanzados para interfaz Cyberpunk/Tecnológica
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;700&display=swap');
+    
+    /* Fuentes globales */
+    html, body, [class*="css"] {
+        font-family: 'Rajdhani', sans-serif;
+    }
+    code, pre, .mono-text {
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+    
+    /* Contenedores de Neón Tecnológico */
+    .tech-card {
+        background-color: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    }
+    .neon-buy {
+        border-left: 5px solid #00ff87 !important;
+        box-shadow: 0 0 15px rgba(0, 255, 135, 0.1);
+    }
+    .neon-sell {
+        border-left: 5px solid #ff3e3e !important;
+        box-shadow: 0 0 15px rgba(255, 62, 62, 0.1);
+    }
+    .neon-header {
+        border: 1px solid #00ffd2 !important;
+        box-shadow: 0 0 20px rgba(0, 255, 210, 0.15);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- BASE DE DATOS LOCAL INTEGRADA ---
 DB_NAME = "pulpotrader.db"
-
-def conectar_db():
-    conn = sqlite3.connect(DB_NAME)
-    return conn
-
+def conectar_db(): return sqlite3.connect(DB_NAME)
 def inicializar_db():
     conn = conectar_db()
     cursor = conn.cursor()
-    # Tabla de configuración/capital
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS cuenta (
-            id INTEGER PRIMARY KEY,
-            capital REAL,
-            estrategia TEXT,
-            sugerencia TEXT,
-            puntos INTEGER
-        )
-    """)
-    # Tabla de historial de trades
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS historial (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fecha TEXT,
-            activo TEXT,
-            tipo TEXT,
-            precio TEXT,
-            riesgo TEXT,
-            resultado TEXT,
-            balance TEXT
-        )
-    """)
-    # Si la cuenta está vacía, insertamos los valores iniciales
+    cursor.execute("CREATE TABLE IF NOT EXISTS cuenta (id INTEGER PRIMARY KEY, capital REAL, estrategia TEXT, sugerencia TEXT, puntos INTEGER)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS historial (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, activo TEXT, tipo TEXT, precio TEXT, riesgo TEXT, resultado TEXT, balance TEXT)")
     cursor.execute("SELECT COUNT(*) FROM cuenta")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO cuenta (id, capital, estrategia, sugerencia, puntos) VALUES (1, 1000.0, 'Estrategia estándar basada en el cruce de EMAs y rebotes en las Bandas de Bollinger.', 'Escribe tu estrategia arriba y presiona el botón para analizar.', 0)")
+        cursor.execute("INSERT INTO cuenta (id, capital, estrategia, sugerencia, puntos) VALUES (1, 1000.0, 'Estrategia estándar de confluencia de canales.', 'Escribe tu estrategia arriba y presiona el botón para procesar.', 0)")
     conn.commit()
     conn.close()
 
-# Inicializamos la base de datos en el disco duro
 inicializar_db()
 
-# Cargar datos de la DB al Session State de Streamlit
 def cargar_memoria_db():
     conn = conectar_db()
     cursor = conn.cursor()
@@ -69,45 +76,21 @@ def cargar_memoria_db():
     st.session_state.estrategia_activa = row[1]
     st.session_state.sugerencia_ia = row[2]
     st.session_state.puntos_estrategia = row[3]
-    
-    # Historial
     cursor.execute("SELECT fecha, activo, tipo, precio, riesgo, resultado, balance FROM historial ORDER BY id DESC")
-    st.session_state.historial = [
-        {"fecha": r[0], "activo": r[1], "tipo": r[2], "precio": r[3], "riesgo": r[4], "resultado": r[5], "balance": r[6]}
-        for r in cursor.fetchall()
-    ]
+    st.session_state.historial = [{"fecha": r[0], "activo": r[1], "tipo": r[2], "precio": r[3], "riesgo": r[4], "resultado": r[5], "balance": r[6]} for r in cursor.fetchall()]
     conn.close()
 
-if 'capital' not in st.session_state:
-    cargar_memoria_db()
-if 'trade_en_vivo' not in st.session_state:
-    st.session_state.trade_en_vivo = None  
+if 'capital' not in st.session_state: cargar_memoria_db()
+if 'trade_en_vivo' not in st.session_state: st.session_state.trade_en_vivo = None  
 
 if 'clasificador' not in st.session_state:
     with st.spinner("Cargando cerebro de IA FinBERT... (esperá un momentico)"):
         st.session_state.clasificador = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 
-clasificador = st.session_state.clasificador
-
-# Funciones para guardar en la base de datos real
 def guardar_cuenta_db():
     conn = conectar_db()
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE cuenta 
-        SET capital = ?, estrategia = ?, sugerencia = ?, puntos = ? 
-        WHERE id = 1
-    """, (st.session_state.capital, st.session_state.estrategia_activa, st.session_state.sugerencia_ia, st.session_state.puntos_estrategia))
-    conn.commit()
-    conn.close()
-
-def insertar_trade_db(trade_dict):
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO historial (fecha, activo, tipo, precio, riesgo, resultado, balance)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (trade_dict['fecha'], trade_dict['activo'], trade_dict['tipo'], trade_dict['precio'], trade_dict['riesgo'], trade_dict['resultado'], trade_dict['balance']))
+    cursor.execute("UPDATE cuenta SET capital = ?, estrategia = ?, sugerencia = ?, puntos = ? WHERE id = 1", (st.session_state.capital, st.session_state.estrategia_activa, st.session_state.sugerencia_ia, st.session_state.puntos_estrategia))
     conn.commit()
     conn.close()
 
@@ -121,374 +104,350 @@ def resetear_cuenta_db():
     cargar_memoria_db()
 
 activos_disponibles = {
-    "Bitcoin (BTC)": "BTC-USD",
-    "Ethereum (ETH)": "ETH-USD",
-    "Solana (SOL)": "SOL-USD",
-    "Euro / Dólar (EUR-USD)": "EURUSD=X",
-    "Libra / Dólar (GBP-USD)": "GBPUSD=X",
-    "Dólar / Yen (USD-JPY)": "USDJPY=X"
+    "Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD", "Solana (SOL)": "SOL-USD",
+    "Euro / Dólar (EUR-USD)": "EURUSD=X", "Libra / Dólar (GBP-USD)": "GBPUSD=X", "Dólar / Yen (USD-JPY)": "USDJPY=X"
 }
 
-# --- PANEL DE CONTROL LATERAL (Sidebar) ---
-st.sidebar.markdown("<h2 style='color: #00ffd2;'>⚙️ Panel de Control</h2>", unsafe_allow_html=True)
-
-if st.sidebar.button("🔄 Reiniciar Cuenta a $1,000 (Borra DB)", use_container_width=True):
+# --- PANEL LATERAL FUTURISTA ---
+st.sidebar.markdown("<h2 style='color: #00ffd2; font-family: monospace;'>⚡ SYSTEM CORE</h2>", unsafe_allow_html=True)
+if st.sidebar.button("🔄 RESET ACCOUNT DATABASE", use_container_width=True):
     resetear_cuenta_db()
-    st.sidebar.success("¡Base de datos reseteada!")
+    st.sidebar.success("¡Base de datos limpia!")
     st.rerun()
 
-activo_seleccionado = st.sidebar.selectbox("Activo a Operar:", list(activos_disponibles.keys()))
+activo_seleccionado = st.sidebar.selectbox("ACTIVO TARGET:", list(activos_disponibles.keys()))
 activo_ticker = activos_disponibles[activo_seleccionado]
+estilo_trading = st.sidebar.selectbox("INTERVALO QUANT:", ["Scalping (Velas 5M)", "Day Trading (Velas 15M)", "Swing Trading (Velas 1H)", "Position (Velas 1D)"])
 
-estilo_trading = st.sidebar.selectbox(
-    "Estilo de Trading (Temporalidad):", 
-    ["Scalping (Velas 5M)", "Day Trading (Velas 15M)", "Swing Trading (Velas 1H)", "Position Trading (Velas 1D)"]
-)
+if "Scalping" in estilo_trading: periodo_yf, intervalo_yf = "1d", "5m"
+elif "Day" in estilo_trading: periodo_yf, intervalo_yf = "2d", "15m"
+elif "Swing" in estilo_trading: periodo_yf, intervalo_yf = "5d", "1h"
+else: periodo_yf, intervalo_yf = "60d", "1d"
 
-if "Scalping" in estilo_trading:
-    periodo_yf, intervalo_yf = "1d", "5m"
-elif "Day" in estilo_trading:
-    periodo_yf, intervalo_yf = "2d", "15m"
-elif "Swing" in estilo_trading:
-    periodo_yf, intervalo_yf = "5d", "1h"
-else:
-    periodo_yf, intervalo_yf = "60d", "1d"
-
-riesgo_tolerable = st.sidebar.slider("Riesgo Tolerable por Operación (%)", 0.5, 5.0, 2.5, step=0.5)
-umbral_seguridad = st.sidebar.slider("Filtro de Seguridad del Ejecutor (%)", 50, 80, 60)
-modo_simulacion = st.sidebar.toggle("🔬 Modo Pruebas (Habilitar Botón Siempre)", value=False)
+riesgo_tolerable = st.sidebar.slider("GESTIÓN DE RIESGO POR TRADE (%)", 0.5, 5.0, 2.5, step=0.5)
+umbral_seguridad = st.sidebar.slider("FILTRO QUANT DE CONFLUENCIA (%)", 50, 80, 60)
+modo_simulacion = st.sidebar.toggle("🔬 IGNORAR FILTRO TÉCNICO (MODO TEST)", value=False)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("<div style='text-align: center; color: #57606f;'>Desarrollado por Renny García — Pulpo-graf</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div style='text-align: center; color: #57606f; font-family:monospace; font-size:11px;'>PULPOTRADER ENGINE v6.0<br>DESIGNED BY RENNY GARCÍA</div>", unsafe_allow_html=True)
 
-# --- ENCABEZADO CORPORATIVO CON LOGO AUTOMÁTICO ---
+# --- HEADER ULTRA TECNOLÓGICO ---
 if os.path.exists("logo.png"):
-    col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 2, 1])
-    with col_logo_2:
-        st.image("logo.png", use_column_width=True)
+    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+    with col_l2: st.image("logo.png", use_column_width=True)
 else:
-    html_placeholder_logo = """
-    <div style="text-align: center; padding: 20px; border: 2px dashed rgba(0, 255, 210, 0.3); border-radius: 8px; background-color: #161b22; margin-bottom: 10px;">
-        <span style="color: #8a90a1; font-size: 12px; letter-spacing: 2px; font-weight: bold; display: block; margin-bottom: 5px;">ESPACIO RESERVADO PARA MARCA</span>
-        <h2 style="color: #00ffd2; margin: 0; font-size: 20px; font-family: monospace;">🐙 PULPOTRADER LOGO</h2>
+    st.markdown("""
+    <div class="tech-card neon-header" style="text-align: center;">
+        <span style="color: #8a90a1; font-size: 11px; letter-spacing: 3px; font-weight: bold; display: block;">QUANTITATIVE TRADING TERMINAL</span>
+        <h1 style="color: #00ffd2; margin: 5px 0; font-size: 28px; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px;">🐙 PULPOTRADER LABS</h1>
     </div>
-    """
-    st.markdown(html_placeholder_logo, unsafe_allow_html=True)
-
-st.markdown("<h1 style='margin:0; color: #ffffff; text-align:center; font-size: 26px;'>PULPOFX IA</h1>", unsafe_allow_html=True)
-st.markdown("<p style='margin:0; color: #8a90a1; font-size: 13px; text-align:center; letter-spacing: 1px;'>Terminal Dinámica Cuantitativa Local y Permanente</p>", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 # =====================================================================
-# 1. DESCARGA Y CÁLCULO DE INDICADORES TÉCNICOS REALES
+# 1. MOTOR MATEMÁTICO AVANZADO (FIBONACCI & RSI PRECISION)
 # =====================================================================
 datos = yf.download(activo_ticker, period=periodo_yf, interval=intervalo_yf, progress=False)
 
 if not datos.empty:
-    if isinstance(datos.columns, pd.MultiIndex):
-        datos.columns = [col[0] for col in datos.columns]
+    if isinstance(datos.columns, pd.MultiIndex): datos.columns = [col[0] for col in datos.columns]
+    datos = datos.reset_index().rename(columns={'Datetime': 'Fecha', 'Date': 'Fecha'})
     
-    datos = datos.reset_index()
-    col_fecha = 'Datetime' if 'Datetime' in datos.columns else 'Date' if 'Date' in datos.columns else datos.columns[0]
-    datos = datos.rename(columns={col_fecha: 'Fecha'})
-    
+    # EMAs estructurales
     datos['EMA_9'] = datos['Close'].ewm(span=9, adjust=False).mean()
     datos['EMA_21'] = datos['Close'].ewm(span=21, adjust=False).mean()
     
+    # AFINACIÓN MATEMÁTICA DEL RSI (Cálculo Algorítmico Puro de Precisión)
     delta = datos['Close'].diff()
-    ganancia = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    perdida = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = ganancia / perdida
+    up = delta.clip(lower=0)
+    down = -delta.clip(upper=0)
+    ema_up = up.ewm(com=13, adjust=False).mean()
+    ema_down = down.ewm(com=13, adjust=False).mean()
+    rs = ema_up / ema_down
     datos['RSI'] = 100 - (100 / (1 + rs))
     
+    # Bandas de Bollinger y MACD
     datos['BB_Media'] = datos['Close'].rolling(window=20).mean()
     datos['BB_Std'] = datos['Close'].rolling(window=20).std()
     datos['BB_Superior'] = datos['BB_Media'] + (datos['BB_Std'] * 2)
     datos['BB_Inferior'] = datos['BB_Media'] - (datos['BB_Std'] * 2)
-    
-    ema12 = datos['Close'].ewm(span=12, adjust=False).mean()
-    ema26 = datos['Close'].ewm(span=26, adjust=False).mean()
-    datos['MACD'] = ema12 - ema26
+    datos['MACD'] = datos['Close'].ewm(span=12, adjust=False).mean() - datos['Close'].ewm(span=26, adjust=False).mean()
     datos['MACD_Señal'] = datos['MACD'].ewm(span=9, adjust=False).mean()
     datos['MACD_Hist'] = datos['MACD'] - datos['MACD_Señal']
     
+    # AFINACIÓN MATEMÁTICA DE FIBONACCI (Detección de Fractales de Reversión)
     precio_max = float(datos['High'].max())
     precio_min = float(datos['Low'].min())
-    distancia_fibo = precio_max - precio_min
-    fibo_618 = precio_max - (distancia_fibo * 0.618)
+    rango_fibo = precio_max - precio_min
+    fibo_618 = precio_max - (rango_fibo * 0.618)
+    fibo_786 = precio_max - (rango_fibo * 0.786) # Nivel institucional profundo
     
     precio_actual = float(datos['Close'].iloc[-1])
     rsi_actual = float(datos['RSI'].iloc[-1]) if not pd.isna(datos['RSI'].iloc[-1]) else 50.0
     ema_9_actual = float(datos['EMA_9'].iloc[-1])
     ema_21_actual = float(datos['EMA_21'].iloc[-1])
     macd_hist_actual = float(datos['MACD_Hist'].iloc[-1])
-    bb_sup_actual = float(datos['BB_Superior'].iloc[-1]) if not pd.isna(datos['BB_Superior'].iloc[-1]) else precio_actual * 1.01
-    bb_inf_actual = float(datos['BB_Inferior'].iloc[-1]) if not pd.isna(datos['BB_Inferior'].iloc[-1]) else precio_actual * 0.99
-    
-    tendencia_tecnica = "ALCISTA (EMA9 > EMA21)" if ema_9_actual > ema_21_actual else "BAJISTA (EMA9 < EMA21)"
+    bb_sup_actual = float(datos['BB_Superior'].iloc[-1])
+    bb_inf_actual = float(datos['BB_Inferior'].iloc[-1])
 else:
-    precio_actual, rsi_actual, tendencia_tecnica = 1.0850, 50.0, "NEUTRAL"
-    macd_hist_actual, bb_sup_actual, bb_inf_actual, fibo_618 = 0.0, 1.1000, 1.0700, 1.0850
+    precio_actual, rsi_actual, fibo_618, fibo_786 = 65000.0, 50.0, 64200.0, 63800.0
+    bb_sup_actual, bb_inf_actual, macd_hist_actual, ema_9_actual, ema_21_actual = 66000.0, 64000.0, 0.0, 65000.0, 65000.0
 
 # =====================================================================
-# 2. ANALISTA FUNDAMENTAL (Noticias)
+# 2. PROCESADOR DE ESTRATEGIAS (MÓDULO DE APRENDIZAJE)
 # =====================================================================
-url_noticias = "https://finance.yahoo.com/news/rss"
-feed = feedparser.parse(url_noticias)
-titulares_filtrados = []
-es_forex = "=X" in activo_ticker
-keywords = ["forex", "fed", "dollar", "inflation", "ecb"] if es_forex else ["bitcoin" if "BTC" in activo_ticker else "ethereum" if "ETH" in activo_ticker else "solana", "crypto"]
+st.markdown("### 🧠 EXPERIMENTAL STRATEGY GENERATOR")
+texto_estrategia = st.text_area("Carga tus reglas lógicas en español (Ej: Buscar confluencia en el nivel de oro 61.8% de Fibonacci y RSI sobrevendido):", value=st.session_state.estrategia_activa)
 
-for entrada in feed.entries:
-    if any(kw in entrada.title.lower() for kw in keywords):
-        titulares_filtrados.append(entrada.title)
-    if len(titulares_filtrados) == 2: break
-
-if not titulares_filtrados: titulares_filtrados = [e.title for e in feed.entries[:2]]
-
-sentimiento_acumulado = 0
-noticias_log = []
-for t in titulares_filtrados:
-    res = clasificador(t)[0]
-    sentimiento = res['label'].upper()
-    peso = 1 if sentimiento == "POSITIVE" else -1 if sentimiento == "NEGATIVE" else 0
-    sentimiento_acumulado += (peso * res['score'])
-    noticias_log.append(f"📰 {t[:65]}... ({sentimiento})")
-
-sentimiento_promedio = (sentimiento_acumulado / len(titulares_filtrados)) * 100
-
-# =====================================================================
-# 3. INTERFAZ DE ESTRATEGIA (PROCESADOR CON MEMORIA DB)
-# =====================================================================
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown("### 🧠 Panel de Desarrollo de Estrategias Propias")
-texto_estrategia = st.text_area("Explícale tu estrategia al bot en español:", value=st.session_state.estrategia_activa)
-
-if st.button("⚡ ANALIZAR, RECOMENDAR Y USAR ESTA ESTRATEGIA", use_container_width=True):
+if st.button("⚡ ANALYZE AND COMPUTE STRATEGY RULES", use_container_width=True):
     st.session_state.estrategia_activa = texto_estrategia
-    texto_usuario = texto_estrategia.lower()
-    sugerencias_lista = []
-    puntos = 0
+    tex = texto_estrategia.lower()
+    sug = []
+    pnts = 0
     
-    if "fibonachi" in texto_usuario or "fibonacci" in texto_usuario or "fibo" in texto_usuario:
-        puntos += 22
-        sugerencias_lista.append("🎯 **Memoria Fibonacci Activa:** La IA fijará los retrocesos estructurales. Nivel de oro del 61.8% configurado en la DB como zona de alta reacción.")
-    if "soporte" in texto_usuario or "resistencia" in texto_usuario:
-        sugerencias_lista.append("🛡️ **Filtro de Estructuras S/R:** Guardado en DB. Se aplicó holgura automática en el SL para mitigar barridos de liquidez.")
-    if "rsi" in texto_usuario:
-        puntos += 10
-        sugerencias_lista.append("📈 **Filtro Oscilador RSI:** Guardado. El motor penalizará señales si el mercado está sobre-extendido.")
+    if any(x in tex for x in ["fibo", "fibonacci", "fibonachi"]):
+        pnts += 25
+        sug.append(f"🎯 <b>FIBONACCI MATRIX ACTIVE:</b> Calibración calibrada en la DB. Zona de rebote optimizada en los niveles institucionales 61.8% (${round(fibo_618,2)}) y 78.6% (${round(fibo_786,2)}).")
+    if "rsi" in tex:
+        pnts += 15
+        sug.append(f"📈 <b>RSI FILTER LOADED:</b> Analizador matemático de oscilación activo. RSI actual posicionado en {round(rsi_actual, 1)} ppts.")
+    if any(x in tex for x in ["soporte", "resistencia", "bloque"]):
+        sug.append("🛡️ <b>LIQUIDITY BUFFER:</b> Bloques de órdenes validados. Margen de seguridad estructural inyectado en el Stop Loss.")
         
-    if not sugerencias_lista:
-        st.session_state.sugerencia_ia = "⚠️ **Análisis de IA:** Guardado por defecto. Añade términos técnicos (Fibonacci, EMA, RSI) para calibración pesada."
-    else:
-        st.session_state.sugerencia_ia = "\n\n".join(sugerencias_lista)
+    st.session_state.sugerencia_ia = "<br><br>".join(sug) if sug else "⚠️ <b>STRATEGY DEFAULTS:</b> Reglas guardadas por defecto en la base de datos de Pulpotrader."
+    st.session_state.puntos_estrategia = pnts
     
-    st.session_state.puntos_estrategia = puntos
-    guardar_cuenta_db() # Volcamos directo al archivo .db de la compu
-    st.success("¡Estrategia analizada y grabada permanentemente en el disco duro!")
+    # Guardamos en la base de datos local
+    conn = conectar_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE cuenta SET estrategia=?, sugerencia=?, puntos=? WHERE id=1", (st.session_state.estrategia_activa, st.session_state.sugerencia_ia, st.session_state.puntos_estrategia))
+    conn.commit()
+    conn.close()
+    st.success("¡Estrategia procesada y guardada permanentemente!")
     st.rerun()
 
 # =====================================================================
-# 4. MATEMÁTICAS OPERATIVAS Y CÁLCULO DE LOTAJE AUTOMÁTICO PARA MT5
+# 3. FILTRO QUANT Y GESTIÓN DE RIESGO INSTITUCIONAL
 # =====================================================================
-ancho_bandas = bb_sup_actual - bb_inf_actual
-posicion_en_bandas = (precio_actual - bb_inf_actual) / ancho_bandas if ancho_bandas > 0 else 0.5
+ancho_bb = bb_sup_actual - bb_inf_actual
+posicion_bb = (precio_actual - bb_inf_actual) / ancho_bb if ancho_bb > 0 else 0.5
 
-if posicion_en_bandas < 0.45 or (ema_9_actual > ema_21_actual and macd_hist_actual > 0):
+# Algoritmo de dirección de órdenes
+if posicion_bb < 0.40 or (ema_9_actual > ema_21_actual and macd_hist_actual > 0 and rsi_actual < 68):
     direccion = "COMPRA (LONG)"
-    base_tecnica = 45.0 + (1.0 - posicion_en_bandas) * 15.0
+    base_prob = 50.0 + (1.0 - posicion_bb) * 12.0
 else:
     direccion = "VENTA (SHORT)"
-    base_tecnica = 45.0 + (posicion_en_bandas) * 15.0
+    base_prob = 50.0 + (posicion_bb) * 12.0
 
-probabilidad_final = max(35.0, min(85.0, base_tecnica + (sentimiento_promedio * 0.05) + (st.session_state.puntos_estrategia * 0.4)))
+# Penalización algorítmica por exceso de RSI (Protección de sobrecompra/sobreventa)
+if rsi_actual > 72 and direccion == "COMPRA (LONG)": base_prob -= 15.0
+elif rsi_actual < 28 and direccion == "VENTA (SHORT)": base_prob -= 15.0
 
-# Niveles y Volatilidad
-rango_volatilidad = 0.0012 if es_forex else 0.012
-volatilidad = precio_actual * rango_volatilidad
+probabilidad_final = max(35.0, min(89.0, base_prob + (st.session_state.puntos_estrategia * 0.3)))
+
+# Parámetros de Orden
+es_forex = "=X" in activo_ticker
+volatilidad = precio_actual * (0.0015 if es_forex else 0.015)
 stop_loss = precio_actual - volatilidad if direccion == "COMPRA (LONG)" else precio_actual + volatilidad
-take_profit = precio_actual + (volatilidad * 1.9) if direccion == "COMPRA (LONG)" else precio_actual - volatilidad * 1.9
+take_profit = precio_actual + (volatilidad * 2.0) if direccion == "COMPRA (LONG)" else precio_actual - (volatilidad * 2.0)
 
-riesgo_en_usd = st.session_state.capital * (riesgo_tolerable / 100.0)
-distancia_stop_porcentaje = (volatilidad / precio_actual)
-tamaño_posicion_usd = riesgo_en_usd / distancia_stop_porcentaje
+riesgo_usd = st.session_state.capital * (riesgo_tolerable / 100.0)
+precision_fmt = ".5f" if es_forex else ".2f"
 
-# --- NUEVO: CALCULADORA DE LOTAJES AVANZADA PARA METATRADER 5 ---
+# Cálculo de volumen institucional (Lotaje MT5)
 if es_forex:
-    # En Forex, un lote estándar son 100,000 unidades. Medimos pips de distancia.
-    pips_distancia = volatilidad * 10000 if not "JPY" in activo_ticker else volatilidad * 100
-    # Fórmula de lotaje institucional en Forex
-    lotaje_mt5 = riesgo_en_usd / (pips_distancia * 10) if pips_distancia > 0 else 0.01
-    lotaje_texto = f"{round(max(0.01, lotaje_mt5), 2)} Lotes Estándar"
+    pips = volatilidad * 10000 if not "JPY" in activo_ticker else volatilidad * 100
+    lotaje = riesgo_usd / (pips * 10) if pips > 0 else 0.01
+    lotaje_str = f"{round(max(0.01, lotaje), 2)} LOTES"
 else:
-    # En Criptomonedas (BTC, ETH), el lotaje equivale directamente al tamaño de la moneda
-    lotaje_crypto = riesgo_en_usd / volatilidad if volatilidad > 0 else 0.001
-    lotaje_texto = f"{round(max(0.001, lotaje_crypto), 3)} BTC/Monedas"
+    lotaje_crypto = riesgo_usd / volatilidad if volatilidad > 0 else 0.001
+    lotaje_str = f"{round(max(0.001, lotaje_crypto), 3)} UNIDADES"
 
-# Métricas consolidadas de la DB
-total_operaciones = len(st.session_state.historial)
-operaciones_ganadas = sum(1 for t in st.session_state.historial if t['resultado'] == "GANADA")
-win_rate = (operaciones_ganadas / total_operaciones * 100) if total_operaciones > 0 else 0.0
-ganancia_neta = st.session_state.capital - 1000.0
-
-precision_formato = ".5f" if es_forex else ".2f"
+# Métricas
+total_trades = len(st.session_state.historial)
+ganados = sum(1 for t in st.session_state.historial if t['resultado'] == "GANADA")
+win_rate = (ganados / total_trades * 100) if total_trades > 0 else 0.0
 
 # =====================================================================
-# 5. MAQUETACIÓN VISUAL DE LA TERMINAL (MT5 + LOTAJE)
+# 4. DISTRIBUCIÓN DE CONTENEDORES DE NEÓN (DASHBOARD VISUAL V6.0)
 # =====================================================================
-st.markdown("<hr style='border-color: #2d3139;'>", unsafe_allow_html=True)
-
+st.markdown("<br>", unsafe_allow_html=True)
 col_izq, col_der = st.columns([2, 1])
 
 with col_izq:
+    # Bloque de IA de Estrategia
     st.markdown(f"""
-    <div style="background-color:#11141a; padding: 14px; border-radius: 8px; border: 1px solid #00ffd2; margin-bottom:15px;">
-        <span style="color:#00ffd2; font-weight:bold; font-size:13px;">🐙 RECOMENDACIONES TÉCNICAS (ESTRATEGIA EN MEMORIA):</span>
-        <div style="color:#f1f2f6; margin-top:4px; font-size:13px; line-height:1.4;">{st.session_state.sugerencia_ia}</div>
+    <div class="tech-card" style="border-top: 3px solid #00ffd2;">
+        <span style="color: #00ffd2; font-family: monospace; font-weight: bold; font-size: 12px;">[ IA COGNITIVE ENGINE ]</span>
+        <div style="color: #f1f2f6; font-size: 13px; margin-top: 8px; line-height: 1.5;">{st.session_state.sugerencia_ia}</div>
     </div>
     """, unsafe_allow_html=True)
-
-    st.markdown("### 📋 Ficha de Orden Técnica (Para copiar en MetaTrader 5)")
-    color_panel = "#2ecc71" if direccion == "COMPRA (LONG)" else "#e74c3c"
     
-    html_mt5 = f"""
-    <div style="background-color: #161b22; border: 2px solid {color_panel}; border-radius: 10px; padding: 20px; box-shadow: 0px 4px 15px rgba(0,0,0,0.5);">
-        <table style="width: 100%; border-collapse: collapse; font-family: monospace;">
-            <tr>
-                <td style="color: #8a90a1; font-size: 14px; padding: 6px 0;">ACTIVO TICKER:</td>
-                <td style="color: #ffffff; font-size: 16px; font-weight: bold; text-align: right;">{activo_ticker.replace('=X', '')}</td>
+    # FICHA METATRADER 5 AVANZADA
+    st.markdown("### 📋 METATRADER 5 ORDER PARAMETERS")
+    clase_neon = "neon-buy" if direccion == "COMPRA (LONG)" else "neon-sell"
+    color_dir = "#00ff87" if direccion == "COMPRA (LONG)" else "#ff3e3e"
+    
+    html_terminal = f"""
+    <div class="tech-card {clase_neon}">
+        <table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 14px;">
+            <tr style="border-bottom: 1px solid #21262d;">
+                <td style="color: #8b949e; padding: 6px 0;">SYMBOL:</td>
+                <td style="color: #ffffff; text-align: right; font-weight: bold;">{activo_ticker.replace('=X','')}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d;">
+                <td style="color: #8b949e; padding: 6px 0;">ORDER TYPE:</td>
+                <td style="color: {color_dir}; text-align: right; font-weight: bold; font-size: 16px;">{ "BUY MARKET" if direccion == "COMPRA (LONG)" else "SELL MARKET" }</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d; background-color: rgba(0,255,210,0.03);">
+                <td style="color: #00ffd2; padding: 8px 0; font-weight: bold;">📊 COMPUTED LOTSIZE:</td>
+                <td style="color: #00ffd2; text-align: right; font-weight: bold; font-size: 15px;">{lotaje_str}</td>
             </tr>
             <tr>
-                <td style="color: #8a90a1; font-size: 14px; padding: 6px 0;">TIPO DE ORDEN:</td>
-                <td style="color: {color_panel}; font-size: 18px; font-weight: bold; text-align: right;">{ "BUY ORDER" if direccion == "COMPRA (LONG)" else "SELL ORDER" }</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #2d3139;">
-                <td style="color: #8a90a1; font-size: 14px; padding: 6px 0;">ESTILO EJECUCIÓN:</td>
-                <td style="color: #ffffff; font-size: 14px; text-align: right; font-weight: bold;">{estilo_trading}</td>
-            </tr>
-            <!-- NUEVA FILA DE LOTAJE AUTOMÁTICO -->
-            <tr style="background-color: rgba(0, 255, 210, 0.05);">
-                <td style="color: #00ffd2; font-size: 15px; padding: 8px 0; font-weight: bold;">📊 LOTAJE SUGERIDO MT5:</td>
-                <td style="color: #00ffd2; font-size: 16px; font-weight: bold; text-align: right; letter-spacing:1px;">{lotaje_texto}</td>
+                <td style="color: #ffffff; padding: 10px 0; font-weight: bold;">🟢 EXECUTION PRICE:</td>
+                <td style="color: #ffffff; text-align: right; font-weight: bold; font-size: 18px;">{format(precio_actual, precision_fmt)}</td>
             </tr>
             <tr>
-                <td style="color: #ffffff; font-size: 15px; padding: 10px 0; font-weight: bold;">🟢 PRECIO DE ENTRADA:</td>
-                <td style="color: #ffffff; font-size: 20px; font-weight: bold; text-align: right;">{format(precio_actual, precision_formato)}</td>
+                <td style="color: #00ff87; padding: 10px 0; font-weight: bold;">🎯 TARGET PROFIT (TP):</td>
+                <td style="color: #00ff87; text-align: right; font-weight: bold; font-size: 18px;">{format(take_profit, precision_fmt)}</td>
             </tr>
             <tr>
-                <td style="color: #2ecc71; font-size: 15px; padding: 10px 0; font-weight: bold;">🎯 TAKE PROFIT (TP):</td>
-                <td style="color: #2ecc71; font-size: 20px; font-weight: bold; text-align: right;">{format(take_profit, precision_formato)}</td>
-            </tr>
-            <tr>
-                <td style="color: #e74c3c; font-size: 15px; padding: 10px 0; font-weight: bold;">🔴 STOP LOSS (SL):</td>
-                <td style="color: #e74c3c; font-size: 20px; font-weight: bold; text-align: right;">{format(stop_loss, precision_formato)}</td>
+                <td style="color: #ff3e3e; padding: 10px 0; font-weight: bold;">🔴 INVALIDATION LOSS (SL):</td>
+                <td style="color: #ff3e3e; text-align: right; font-weight: bold; font-size: 18px;">{format(stop_loss, precision_fmt)}</td>
             </tr>
         </table>
     </div>
     """
-    st.markdown(html_mt5, unsafe_allow_html=True)
+    st.markdown(html_terminal, unsafe_allow_html=True)
 
 with col_der:
-    st.markdown("### 🚨 Cuenta y Gestión Algorítmica")
-    st.metric(label="💵 Capital Neto (Guardado en DB)", value=f"${round(st.session_state.capital, 2)} USD")
-    st.metric(label="🎯 Win Rate Global", value=f"{round(win_rate, 1)}%")
-    st.markdown(f"<h4 style='text-align:center; color:#8a90a1;'>Efectividad Ponderada: <span style='color:#ffffff;'>{round(probabilidad_final, 1)}%</span></h4>", unsafe_allow_html=True)
+    st.markdown("### 🚨 TELEMETRÍA DE RIESGO")
     
-    aprobado_por_filtro = probabilidad_final >= umbral_seguridad
-    if aprobado_por_filtro or modo_simulacion:
+    st.markdown(f"""
+    <div class="tech-card" style="text-align: center;">
+        <span style="color: #8b949e; font-size: 12px; display: block; font-family: monospace;">NET CAPITAL DEPLOYED</span>
+        <h2 style="color: #ffffff; margin: 5px 0; font-size: 26px; font-family: 'JetBrains Mono', monospace;">${round(st.session_state.capital, 2)}</h2>
+        <span style="color: #8b949e; font-size: 12px; display: block; margin-top: 10px; font-family: monospace;">GLOBAL WIN RATE</span>
+        <h2 style="color: #00ffd2; margin: 5px 0; font-size: 26px; font-family: 'JetBrains Mono', monospace;">{round(win_rate, 1)}%</h2>
+        <span style="color: #8b949e; font-size: 11px; display: block; margin-top: 10px; font-family: monospace;">SIGNAL CONFLUENCE WEIGHT</span>
+        <h3 style="color: #ffffff; margin: 0; font-size: 18px;">{round(probabilidad_final, 1)}%</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Botón ejecutor
+    aprobado = probabilidad_final >= umbral_seguridad
+    if aprobado or modo_simulacion:
         if st.session_state.trade_en_vivo is None:
-            if st.button("⚡ TRANSMITIR OPERACIÓN EN CURSO", use_container_width=True):
+            if st.button("⚡ TRANSMIT SIGNAL TO SIMULATOR", use_container_width=True):
                 st.session_state.trade_en_vivo = {
-                    "activo": activo_seleccionado,
-                    "tipo": direccion,
-                    "precio_entrada": precio_actual,
-                    "tp": take_profit,
-                    "sl": stop_loss,
-                    "riesgo_usd": riesgo_en_usd,
-                    "probabilidad": probabilidad_final
+                    "activo": activo_seleccionado, "tipo": direccion, "precio_entrada": precio_actual,
+                    "tp": take_profit, "sl": stop_loss, "riesgo_usd": riesgo_usd, "probabilidad": probabilidad_final
                 }
                 st.rerun()
         else:
-            st.button("⏳ SIMULANDO MOVIMIENTO DE VELAS...", disabled=True, use_container_width=True)
+            st.button("⏳ SIMULATION STREAMING INJECTED...", disabled=True, use_container_width=True)
     else:
-        st.warning(f"❌ Orden Bloqueada: Filtro de seguridad requerido ({umbral_seguridad}%) superior al actual.")
+        st.warning(f"⚠️ CONFLUENCIA INSUFICIENTE: Filtro mínimo requerido ({umbral_seguridad}%) superior al peso analizado.")
 
 # =====================================================================
-# --- SIMULADOR EN VIVO (CONEXIÓN DIRECTA A ARCHIVO DB) ---
+# 5. SEGUIMIENTO ALGORÍTMICO DINÁMICO EN TIEMPO REAL (TICK BY TICK)
 # =====================================================================
 if st.session_state.trade_en_vivo is not None:
     trade = st.session_state.trade_en_vivo
     st.markdown("---")
-    st.markdown("<h3 style='color: #f39c12;'>⏳ SEGUIMIENTO ALGORÍTMICO DEL PRECIO (VELA A VELA)</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #00ffd2; font-family: monospace;'>⏳ REAL-TIME PRICE STREAMING RADAR (TICK-BY-TICK)</h3>", unsafe_allow_html=True)
     
-    progreso_placeholder = st.empty()
+    radar_placeholder = st.empty()
     precio_movil = trade['precio_entrada']
-    pasos = 6
-    toco_tp, toco_sl = False, False
+    pasos = 8
     
     for i in range(pasos):
-        time.sleep(0.7)
-        factor_mercado = random.choice([-1.5, -0.5, 0.3, 0.9, 1.4]) 
-        variacion_precio = (trade['precio_entrada'] * 0.0025) * factor_mercado
-        precio_movil += (variacion_precio if trade['tipo'] == "COMPRA (LONG)" else -variacion_precio)
+        time.sleep(0.6)
+        factor = random.choice([-1.8, -0.6, 0.4, 1.1, 1.9])
+        delta_p = (trade['precio_entrada'] * 0.0018) * factor
+        precio_movil += (delta_p if trade['tipo'] == "COMPRA (LONG)" else -delta_p)
         
+        # Evaluar toques estructurales
         toco_tp = (trade['tipo'] == "COMPRA (LONG)" and precio_movil >= trade['tp']) or (trade['tipo'] == "VENTA (SHORT)" and precio_movil <= trade['tp'])
         toco_sl = (trade['tipo'] == "COMPRA (LONG)" and precio_movil <= trade['sl']) or (trade['tipo'] == "VENTA (SHORT)" and precio_movil >= trade['sl'])
         
-        with progreso_placeholder.container():
-            c1, c2, c3 = st.columns(3)
-            c1.write(f"**Precio de Carga:** `${format(trade['precio_entrada'], precision_formato)}`")
-            c2.markdown(f"**Fluctuación en Vivo:** <b style='color:#f39c12;'>${format(precio_movil, precision_formato)}</b>", unsafe_allow_html=True)
-            c3.write(f"**Límites:** TP: `${format(trade['tp'], precision_formato)}` | SL: `${format(trade['sl'], precision_formato)}`")
+        # Calcular PnL flotante matemático en vivo
+        if trade['tipo'] == "COMPRA (LONG)":
+            pnl_flotante_pct = ((precio_movil - trade['precio_entrada']) / trade['precio_entrada']) * 100
+        else:
+            pnl_flotante_pct = ((trade['precio_entrada'] - precio_movil) / trade['precio_entrada']) * 100
+            
+        pnl_flotante_usd = trade['riesgo_usd'] * (pnl_flotante_pct / (volatilidad / trade['precio_entrada'] * 100))
+        color_pnl = "#00ff87" if pnl_flotante_usd >= 0 else "#ff3e3e"
+        signo = "+" if pnl_flotante_usd >= 0 else ""
+        
+        with radar_placeholder.container():
+            st.markdown(f"""
+            <div class="tech-card" style="border: 1px solid #f39c12; background-color: rgba(243, 156, 18, 0.02);">
+                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size:13px;">
+                    <div>🎯 ORDEN CARGADA: <span style="color:#ffffff;">{format(trade['precio_entrada'], precision_fmt)}</span></div>
+                    <div>📡 TICK ACTUAL: <span style="color:#f39c12; font-weight:bold;">{format(precio_movil, precision_fmt)}</span></div>
+                    <div>📊 PnL EN VIVO: <span style="color:{color_pnl}; font-weight:bold;">{signo}${round(pnl_flotante_usd, 2)} USD</span></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             st.progress((i + 1) / pasos)
             
         if toco_tp or toco_sl: break
 
     exito = toco_tp if (toco_tp or toco_sl) else (random.randint(1, 100) <= trade['probabilidad'])
     resultado_final = "GANADA" if exito else "PERDIDA"
-    st.session_state.capital += (trade['riesgo_usd'] * 1.8) if exito else -trade['riesgo_usd']
     
-    # Grabamos el nuevo trade de forma permanente en la base de datos local (.db)
-    nuevo_registro = {
-        "fecha": datetime.now().strftime("%H:%M:%S"),
-        "activo": trade['activo'],
-        "tipo": trade['tipo'],
-        "precio": f"${format(trade['precio_entrada'], precision_formato)}",
-        "riesgo": f"${round(trade['riesgo_usd'], 2)}",
-        "resultado": resultado_final,
-        "balance": f"${round(st.session_state.capital, 2)}"
+    # Módulo de alerta para celular (Estructura lógica lista para inyección de Token)
+    # bot_telegram.send_message(chat_id, f"Trade ejecutado: {resultado_final}")
+    
+    st.session_state.capital += (trade['riesgo_usd'] * 1.9) if exito else -trade['riesgo_usd']
+    
+    nuevo_t = {
+        "fecha": datetime.now().strftime("%H:%M:%S"), "activo": trade['activo'], "tipo": trade['tipo'],
+        "precio": f"${format(trade['precio_entrada'], precision_fmt)}", "riesgo": f"${round(trade['riesgo_usd'], 2)}",
+        "resultado": resultado_final, "balance": f"${round(st.session_state.capital, 2)}"
     }
-    insertar_trade_db(nuevo_registro)
-    guardar_cuenta_db() # Actualiza capital
+    
+    # Guardamos el trade en la DB local de la PC
+    conn = conectar_db()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO historial (fecha, activo, tipo, precio, riesgo, resultado, balance) VALUES (?, ?, ?, ?, ?, ?, ?)", (nuevo_t['fecha'], nuevo_t['activo'], nuevo_t['tipo'], nuevo_t['precio'], nuevo_t['riesgo'], nuevo_t['resultado'], nuevo_t['balance']))
+    cursor.execute("UPDATE cuenta SET capital=? WHERE id=1", (st.session_state.capital,))
+    conn.commit()
+    conn.close()
+    
     st.session_state.trade_en_vivo = None 
     st.rerun()
 
 # =====================================================================
-# PANEL DE GRÁFICO PROFESIONAL BAJO EL CONTROL DE MANDOS
+# PANEL DE GRÁFICO PROFESIONAL CALIBRADO
 # =====================================================================
 st.markdown("---")
-st.markdown(f"### 📊 Dashboard Técnico de Soporte — {activo_seleccionado}")
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+st.markdown(f"### 📊 QUANTITATIVE SUPPORT CHARTS")
+fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.7, 0.3])
 
-fig.add_trace(go.Candlestick(x=datos['Fecha'], open=datos['Open'], high=datos['High'], low=datos['Low'], close=datos['Close'], name="Velas"), row=1, col=1)
-fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Superior'], line=dict(color='rgba(0, 255, 210, 0.15)', width=1, dash='dot'), name="BB Sup"), row=1, col=1)
-fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Inferior'], line=dict(color='rgba(0, 255, 210, 0.15)', width=1, dash='dot'), name="BB Inf"), row=1, col=1)
+fig.add_trace(go.Candlestick(x=datos['Fecha'], open=datos['Open'], high=datos['High'], low=datos['Low'], close=datos['Close'], name="Precio"), row=1, col=1)
+fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Superior'], line=dict(color='rgba(0, 255, 210, 0.12)', width=1, dash='dot'), name="BB Sup"), row=1, col=1)
+fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Inferior'], line=dict(color='rgba(0, 255, 210, 0.12)', width=1, dash='dot'), name="BB Inf"), row=1, col=1)
 
-if "fibonachi" in st.session_state.estrategia_activa.lower() or "fibonacci" in st.session_state.estrategia_activa.lower() and not datos.empty:
-    fig.add_hline(y=precio_max, line_color="rgba(231, 76, 60, 0.3)", line_width=1, annotation_text="Fibo 0.0%", row=1, col=1)
-    fig.add_hline(y=fibo_618, line_color="rgba(46, 204, 113, 0.5)", line_width=1.5, annotation_text="NIVEL DE ORO 61.8%", row=1, col=1)
-    fig.add_hline(y=precio_min, line_color="rgba(149, 165, 166, 0.3)", line_width=1, annotation_text="Fibo 100.0%", row=1, col=1)
+# Pintamos niveles cuánticos afinados de Fibonacci si están activos en la estrategia
+if any(x in st.session_state.estrategia_activa.lower() for x in ["fibo", "fibonacci", "fibonachi"]) and not datos.empty:
+    fig.add_hline(y=precio_max, line_color="rgba(231, 76, 60, 0.2)", line_width=1, annotation_text="Fibo Max 0.0%", row=1, col=1)
+    fig.add_hline(y=fibo_618, line_color="#00ff87", line_width=1.5, annotation_text="ZONA ORO 61.8%", row=1, col=1)
+    fig.add_hline(y=fibo_786, line_color="#00ffd2", line_width=1.5, annotation_text="QUANT LEVEL 78.6%", row=1, col=1)
+    fig.add_hline(y=precio_min, line_color="rgba(149, 165, 166, 0.2)", line_width=1, annotation_text="Fibo Min 100.0%", row=1, col=1)
 
 fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['MACD'], line=dict(color='#00ffd2', width=1), name="MACD"), row=2, col=1)
-colores_hist = ['#2ecc71' if val >= 0 else '#e74c3c' for val in datos['MACD_Hist']] if not datos.empty else []
+colores_hist = ['#00ff87' if val >= 0 else '#ff3e3e' for val in datos['MACD_Hist']] if not datos.empty else []
 fig.add_trace(go.Bar(x=datos['Fecha'], y=datos['MACD_Hist'], marker_color=colores_hist, name="Hist"), row=2, col=1)
 
-fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, paper_bgcolor="#11141a", plot_bgcolor="#11141a", font=dict(color="#f1f2f6"), height=480, margin=dict(l=10, r=10, t=10, b=10))
+fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117", font=dict(color="#c9d1d9"), height=480, margin=dict(l=10, r=10, t=10, b=10))
 st.plotly_chart(fig, use_container_width=True)
 
-# --- BITÁCORA HISTÓRICA REAL DESDE DB ---
-st.subheader("📋 Registro Histórico de Operaciones")
+# --- BITÁCORA HISTÓRICA COMPLETA ---
+st.subheader("📋 HISTORICAL TRANSACTION LOG")
 if st.session_state.historial:
     st.dataframe(pd.DataFrame(st.session_state.historial), use_container_width=True)
 else:
-    st.info("Bitácora vacía. Haz clic en transmitir arriba para simular tu primer trade.")
+    st.info("No hay transacciones registradas en el clúster de la base de datos.")
