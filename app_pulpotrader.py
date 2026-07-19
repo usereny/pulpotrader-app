@@ -7,13 +7,12 @@ from plotly.subplots import make_subplots
 import random
 import time
 import os
-import sqlite3
 from datetime import datetime
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 # Configuración de página ultra-wide corporativa y futurista
-st.set_page_config(page_title="PULPOFX IA v6.1 - Pulpotrader Pro", page_icon="🐙", layout="wide")
+st.set_page_config(page_title="PULPOFX IA v6.2 - Pulpotrader Pro", page_icon="🐙", layout="wide")
 
 # Descarga del recurso ultra-ligero para análisis de sentimiento
 @st.cache_resource
@@ -43,68 +42,20 @@ st.markdown("""
         margin-bottom: 20px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.6);
     }
-    .neon-buy {
-        border-left: 5px solid #00ff87 !important;
-        box-shadow: 0 0 15px rgba(0, 255, 135, 0.1);
-    }
-    .neon-sell {
-        border-left: 5px solid #ff3e3e !important;
-        box-shadow: 0 0 15px rgba(255, 62, 62, 0.1);
-    }
-    .neon-header {
-        border: 1px solid #00ffd2 !important;
-        box-shadow: 0 0 20px rgba(0, 255, 210, 0.15);
-    }
+    .neon-buy { border-left: 5px solid #00ff87 !important; box-shadow: 0 0 15px rgba(0, 255, 135, 0.1); }
+    .neon-sell { border-left: 5px solid #ff3e3e !important; box-shadow: 0 0 15px rgba(255, 62, 62, 0.1); }
+    .neon-header { border: 1px solid #00ffd2 !important; box-shadow: 0 0 20px rgba(0, 255, 210, 0.15); }
+    .neon-news { border-top: 3px solid #f39c12 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- BASE DE DATOS LOCAL INTEGRADA ---
-DB_NAME = "pulpotrader.db"
-def conectar_db(): return sqlite3.connect(DB_NAME)
-def inicializar_db():
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS cuenta (id INTEGER PRIMARY KEY, capital REAL, estrategia TEXT, sugerencia TEXT, puntos INTEGER)")
-    cursor.execute("CREATE TABLE IF NOT EXISTS historial (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, activo TEXT, tipo TEXT, precio TEXT, riesgo TEXT, resultado TEXT, balance TEXT)")
-    cursor.execute("SELECT COUNT(*) FROM cuenta")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO cuenta (id, capital, estrategia, sugerencia, puntos) VALUES (1, 1000.0, 'Estrategia estándar de confluencia de canales.', 'Escribe tu estrategia arriba y presiona el botón para procesar.', 0)")
-    conn.commit()
-    conn.close()
-
-inicializar_db()
-
-def cargar_memoria_db():
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT capital, estrategia, sugerencia, puntos FROM cuenta WHERE id = 1")
-    row = cursor.fetchone()
-    st.session_state.capital = row[0]
-    st.session_state.estrategia_activa = row[1]
-    st.session_state.sugerencia_ia = row[2]
-    st.session_state.puntos_estrategia = row[3]
-    cursor.execute("SELECT fecha, activo, tipo, precio, riesgo, resultado, balance FROM historial ORDER BY id DESC")
-    st.session_state.historial = [{"fecha": r[0], "activo": r[1], "tipo": r[2], "precio": r[3], "riesgo": r[4], "resultado": r[5], "balance": r[6]} for r in cursor.fetchall()]
-    conn.close()
-
-if 'capital' not in st.session_state: cargar_memoria_db()
+# --- SISTEMA DE MEMORIA HÍBRIDA (SESIÓN WEB SEGURA) ---
+if 'capital' not in st.session_state: st.session_state.capital = 1000.0
+if 'historial' not in st.session_state: st.session_state.historial = []
 if 'trade_en_vivo' not in st.session_state: st.session_state.trade_en_vivo = None  
-
-def guardar_cuenta_db():
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE cuenta SET capital = ?, estrategia = ?, sugerencia = ?, puntos = ? WHERE id = 1", (st.session_state.capital, st.session_state.estrategia_activa, st.session_state.sugerencia_ia, st.session_state.puntos_estrategia))
-    conn.commit()
-    conn.close()
-
-def resetear_cuenta_db():
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE cuenta SET capital = 1000.0, estrategia = 'Estrategia estándar.', sugerencia = 'Escribe tu estrategia.', puntos = 0 WHERE id = 1")
-    cursor.execute("DELETE FROM historial")
-    conn.commit()
-    conn.close()
-    cargar_memoria_db()
+if 'estrategia_activa' not in st.session_state: st.session_state.estrategia_activa = "Estrategia estándar de confluencia de canales."
+if 'sugerencia_ia' not in st.session_state: st.session_state.sugerencia_ia = "Escribe tu estrategia arriba y presiona el botón para procesar."
+if 'puntos_estrategia' not in st.session_state: st.session_state.puntos_estrategia = 0
 
 activos_disponibles = {
     "Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD", "Solana (SOL)": "SOL-USD",
@@ -114,8 +65,13 @@ activos_disponibles = {
 # --- PANEL LATERAL FUTURISTA ---
 st.sidebar.markdown("<h2 style='color: #00ffd2; font-family: monospace;'>⚡ SYSTEM CORE</h2>", unsafe_allow_html=True)
 if st.sidebar.button("🔄 RESET ACCOUNT DATABASE", use_container_width=True):
-    resetear_cuenta_db()
-    st.sidebar.success("¡Base de datos limpia!")
+    st.session_state.capital = 1000.0
+    st.session_state.historial = []
+    st.session_state.trade_en_vivo = None
+    st.session_state.estrategia_activa = "Estrategia estándar de confluencia de canales."
+    st.session_state.sugerencia_ia = "Escribe tu estrategia arriba y presiona el botón para procesar."
+    st.session_state.puntos_estrategia = 0
+    st.sidebar.success("¡Memoria limpia con éxito!")
     st.rerun()
 
 activo_seleccionado = st.sidebar.selectbox("ACTIVO TARGET:", list(activos_disponibles.keys()))
@@ -132,19 +88,15 @@ umbral_seguridad = st.sidebar.slider("FILTRO QUANT DE CONFLUENCIA (%)", 50, 80, 
 modo_simulacion = st.sidebar.toggle("🔬 IGNORAR FILTRO TÉCNICO (MODO TEST)", value=False)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("<div style='text-align: center; color: #57606f; font-family:monospace; font-size:11px;'>PULPOTRADER ENGINE v6.1<br>DESIGNED BY RENNY GARCÍA</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div style='text-align: center; color: #57606f; font-family:monospace; font-size:11px;'>PULPOTRADER ENGINE v6.2<br>DESIGNED BY RENNY GARCÍA</div>", unsafe_allow_html=True)
 
 # --- HEADER ULTRA TECNOLÓGICO ---
-if os.path.exists("logo.png"):
-    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
-    with col_l2: st.image("logo.png", use_column_width=True)
-else:
-    st.markdown("""
-    <div class="tech-card neon-header" style="text-align: center;">
-        <span style="color: #8a90a1; font-size: 11px; letter-spacing: 3px; font-weight: bold; display: block;">QUANTITATIVE TRADING TERMINAL</span>
-        <h1 style="color: #00ffd2; margin: 5px 0; font-size: 28px; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px;">🐙 PULPOTRADER LABS</h1>
-    </div>
-    """, unsafe_allow_html=True)
+st.markdown("""
+<div class="tech-card neon-header" style="text-align: center;">
+    <span style="color: #8a90a1; font-size: 11px; letter-spacing: 3px; font-weight: bold; display: block;">QUANTITATIVE TRADING TERMINAL</span>
+    <h1 style="color: #00ffd2; margin: 5px 0; font-size: 28px; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px;">🐙 PULPOTRADER LABS</h1>
+</div>
+""", unsafe_allow_html=True)
 
 # =====================================================================
 # 1. MOTOR MATEMÁTICO AVANZADO (FIBONACCI & RSI PRECISION)
@@ -188,14 +140,14 @@ if not datos.empty:
     bb_sup_actual = float(datos['BB_Superior'].iloc[-1])
     bb_inf_actual = float(datos['BB_Inferior'].iloc[-1])
 else:
-    precio_actual, rsi_actual, fibo_618, fibo_786 = 65000.0, 50.0, 64200.0, 63800.0
-    bb_sup_actual, bb_inf_actual, macd_hist_actual, ema_9_actual, ema_21_actual = 66000.0, 64000.0, 0.0, 65000.0, 65000.0
+    precio_actual, rsi_actual, fibo_618, fibo_786 = 1850.0, 50.0, 1820.0, 1800.0
+    bb_sup_actual, bb_inf_actual, macd_hist_actual, ema_9_actual, ema_21_actual = 1900.0, 1800.0, 0.0, 1850.0, 1850.0
 
 # =====================================================================
-# 2. PROCESADOR DE ESTRATEGIAS (MÓDULO DE APRENDIZAJE)
+# 2. PROCESADOR DE ESTRATEGIAS REACREATIVO (CORRECCIÓN DE ANÁLISIS)
 # =====================================================================
 st.markdown("### 🧠 EXPERIMENTAL STRATEGY GENERATOR")
-texto_estrategia = st.text_area("Carga tus reglas lógicas en español (Ej: Buscar confluencia en el nivel de oro 61.8% de Fibonacci y RSI sobrevendido):", value=st.session_state.estrategia_activa)
+texto_estrategia = st.text_area("Carga tus reglas lógicas en español:", value=st.session_state.estrategia_activa)
 
 if st.button("⚡ ANALYZE AND COMPUTE STRATEGY RULES", use_container_width=True):
     st.session_state.estrategia_activa = texto_estrategia
@@ -205,39 +157,46 @@ if st.button("⚡ ANALYZE AND COMPUTE STRATEGY RULES", use_container_width=True)
     
     if any(x in tex for x in ["fibo", "fibonacci", "fibonachi"]):
         pnts += 25
-        sug.append(f"🎯 <b>FIBONACCI MATRIX ACTIVE:</b> Calibración guardada. Zona de rebote optimizada en los niveles institucionales 61.8% (${round(fibo_618,2)}) y 78.6% (${round(fibo_786,2)}).")
+        sug.append(f"🎯 <b>FIBONACCI MATRIX ACTIVE:</b> Reglas recalculadas en la matriz. Zona de rebote optimizada en los niveles institucionales 61.8% (${round(fibo_618,2)}) y 78.6% (${round(fibo_786,2)}).")
     if "rsi" in tex:
         pnts += 15
-        sug.append(f"📈 <b>RSI FILTER LOADED:</b> Analizador matemático de oscilación activo. RSI actual posicionado en {round(rsi_actual, 1)} ppts.")
-    if any(x in tex for x in ["soporte", "resistencia", "bloque"]):
-        sug.append("🛡️ <b>LIQUIDITY BUFFER:</b> Bloques de órdenes validados. Margen de seguridad estructural inyectado en el Stop Loss.")
+        sug.append(f"📈 <b>RSI FILTER LOADED:</b> Analizador matemático activo. RSI actual posicionado en {round(rsi_actual, 1)} ppts.")
+    if any(x in tex for x in ["soporte", "resistencia", "soportes", "resistencicas", "st"]):
+        sug.append("🛡️ <b>LIQUIDITY BUFFER:</b> Bloques de soporte/resistencia detectados en texto. Margen estructural inyectado en la orden.")
         
-    st.session_state.sugerencia_ia = "<br><br>".join(sug) if sug else "⚠️ <b>STRATEGY DEFAULTS:</b> Reglas guardadas por defecto en la base de datos de Pulpotrader."
+    st.session_state.sugerencia_ia = "<br><br>".join(sug) if sug else "⚠️ <b>STRATEGY DEFAULTS:</b> Reglas genéricas cargadas con éxito."
     st.session_state.puntos_estrategia = pnts
-    
-    guardar_cuenta_db()
-    st.success("¡Estrategia procesada y guardada permanentemente!")
+    st.success("¡Estrategia analizada y acoplada dinámicamente al motor técnico!")
     st.rerun()
 
 # =====================================================================
-# 3. ANALISTA FUNDAMENTAL COMPACTO Y ULTRA-LIGHT
+# 3. ANALISTA FUNDAMENTAL CON IMPRESIÓN WEB DE TITULARES
 # =====================================================================
 url_noticias = "https://finance.yahoo.com/news/rss"
 feed = feedparser.parse(url_noticias)
 titulares_filtrados = []
 es_forex = "=X" in activo_ticker
-keywords = ["forex", "fed", "dollar", "inflation"] if es_forex else ["bitcoin", "crypto", "ethereum", "solana"]
+keywords = ["forex", "fed", "dollar", "inflation", "rate"] if es_forex else ["bitcoin", "crypto", "ethereum", "solana", "ether"]
 
 for entrada in feed.entries:
     if any(kw in entrada.title.lower() for kw in keywords):
         titulares_filtrados.append(entrada.title)
-    if len(titulares_filtrados) == 2: break
-if not titulares_filtrados: titulares_filtrados = [e.title for e in feed.entries[:2]]
+    if len(titulares_filtrados) == 3: break
+if not titulares_filtrados: titulares_filtrados = [e.title for e in feed.entries[:3]]
 
 sentimiento_acumulado = 0
+noticias_render = []
+
 for t in titulares_filtrados:
     scores = sia.polarity_scores(t)
-    sentimiento_acumulado += scores['compound']
+    compound = scores['compound']
+    sentimiento_acumulado += compound
+    
+    if compound >= 0.05: estado, color_lbl = "FAVORABLE 👍", "#00ff87"
+    elif compound <= -0.05: estado, color_lbl = "DESFAVORABLE 👎", "#ff3e3e"
+    else: estado, color_lbl = "NEUTRAL 😐", "#8b949e"
+    
+    noticias_render.append(f"<li style='margin-bottom:8px; font-size:13px; color:#ffffff;'>📰 {t} — <b style='color:{color_lbl};'>{estado}</b></li>")
 
 sentimiento_promedio = (sentimiento_acumulado / len(titulares_filtrados)) * 100 if titulares_filtrados else 0
 
@@ -279,7 +238,7 @@ ganados = sum(1 for t in st.session_state.historial if t['resultado'] == "GANADA
 win_rate = (ganados / total_trades * 100) if total_trades > 0 else 0.0
 
 # =====================================================================
-# 5. DISTRIBUCIÓN DE CONTENEDORES DE NEÓN (DASHBOARD VISUAL)
+# 5. MAQUETACIÓN VISUAL TERMINAL
 # =====================================================================
 st.markdown("<br>", unsafe_allow_html=True)
 col_izq, col_der = st.columns([2, 1])
@@ -330,7 +289,6 @@ with col_izq:
 
 with col_der:
     st.markdown("### 🚨 TELEMETRÍA DE RIESGO")
-    
     st.markdown(f"""
     <div class="tech-card" style="text-align: center;">
         <span style="color: #8b949e; font-size: 12px; display: block; font-family: monospace;">NET CAPITAL DEPLOYED</span>
@@ -357,7 +315,7 @@ with col_der:
         st.warning(f"⚠️ CONFLUENCIA INSUFICIENTE: Filtro mínimo requerido ({umbral_seguridad}%) superior al peso analizado.")
 
 # =====================================================================
-# 6. SEGUIMIENTO ALGORÍTMICO DINÁMICO (TICK BY TICK)
+# 6. SEGUIMIENTO ALGORÍTMICO EN TIEMPO REAL COHERENTE
 # =====================================================================
 if st.session_state.trade_en_vivo is not None:
     trade = st.session_state.trade_en_vivo
@@ -411,13 +369,8 @@ if st.session_state.trade_en_vivo is not None:
         "resultado": resultado_final, "balance": f"${round(st.session_state.capital, 2)}"
     }
     
-    conn = conectar_db()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO historial (fecha, activo, tipo, precio, riesgo, resultado, balance) VALUES (?, ?, ?, ?, ?, ?, ?)", (nuevo_t['fecha'], nuevo_t['activo'], nuevo_t['tipo'], nuevo_t['precio'], nuevo_t['riesgo'], nuevo_t['resultado'], nuevo_t['balance']))
-    cursor.execute("UPDATE cuenta SET capital=? WHERE id=1", (st.session_state.capital,))
-    conn.commit()
-    conn.close()
-    
+    # Inyección forzada en la memoria temporal web
+    st.session_state.historial.insert(0, nuevo_t)
     st.session_state.trade_en_vivo = None 
     st.rerun()
 
@@ -445,8 +398,20 @@ fig.add_trace(go.Bar(x=datos['Fecha'], y=datos['MACD_Hist'], marker_color=colore
 fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117", font=dict(color="#c9d1d9"), height=480, margin=dict(l=10, r=10, t=10, b=10))
 st.plotly_chart(fig, use_container_width=True)
 
+# =====================================================================
+# 7. NUEVO VISUALIZADOR FUNDAMENTAL DE TITULARES REALES
+# =====================================================================
+st.markdown(f"""
+<div class="tech-card neon-news">
+    <span style="color: #f39c12; font-family: monospace; font-weight: bold; font-size: 12px;">[ ENGINE FUNDAMENTAL STREAM — TITULARES EVALUADOS POR IA ]</span>
+    <ul style="margin-top: 10px; padding-left: 20px; list-style-type: square;">
+        {"".join(noticias_render)}
+    </ul>
+</div>
+""", unsafe_allow_html=True)
+
 st.subheader("📋 HISTORICAL TRANSACTION LOG")
 if st.session_state.historial:
     st.dataframe(pd.DataFrame(st.session_state.historial), use_container_width=True)
 else:
-    st.info("No hay transacciones registradas en el clúster de la base de datos.")
+    st.info("No hay transacciones registradas en la memoria de la sesión actual.")
