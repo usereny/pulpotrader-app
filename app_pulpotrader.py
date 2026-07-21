@@ -6,15 +6,18 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import random
 import time
-import os
+import math
+import statistics
 from datetime import datetime
+from dataclasses import dataclass
+from enum import Enum
+from typing import Sequence, Optional
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-# Configuración de página ultra-wide corporativa y futurista
-st.set_page_config(page_title="PULPOFX IA v6.2 - Pulpotrader Pro", page_icon="🐙", layout="wide")
+# Configuración de la aplicación
+st.set_page_config(page_title="PULPOTRADER QuantiaFX v7.0", page_icon="🐙", layout="wide")
 
-# Descarga del recurso ultra-ligero para análisis de sentimiento
 @st.cache_resource
 def descargar_vader():
     nltk.download('vader_lexicon', quiet=True)
@@ -22,26 +25,13 @@ def descargar_vader():
 
 sia = descargar_vader()
 
-# Estilos CSS avanzados para interfaz Cyberpunk/Tecnológica
+# Estilos visuales Cyberpunk
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Rajdhani', sans-serif;
-    }
-    code, pre, .mono-text {
-        font-family: 'JetBrains Mono', monospace !important;
-    }
-    
-    .tech-card {
-        background-color: #0d1117;
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.6);
-    }
+    html, body, [class*="css"] { font-family: 'Rajdhani', sans-serif; }
+    code, pre, .mono-text { font-family: 'JetBrains Mono', monospace !important; }
+    .tech-card { background-color: #0d1117; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.6); }
     .neon-buy { border-left: 5px solid #00ff87 !important; box-shadow: 0 0 15px rgba(0, 255, 135, 0.1); }
     .neon-sell { border-left: 5px solid #ff3e3e !important; box-shadow: 0 0 15px rgba(255, 62, 62, 0.1); }
     .neon-header { border: 1px solid #00ffd2 !important; box-shadow: 0 0 20px rgba(0, 255, 210, 0.15); }
@@ -49,369 +39,443 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SISTEMA DE MEMORIA HÍBRIDA (SESIÓN WEB SEGURA) ---
+# =====================================================================
+# 🧠 NÚCLEO ARQUITECTÓNICO QUANTIAFX CORE (CLASES Y DATACLASSES)
+# =====================================================================
+
+class Direction(str, Enum):
+    BUY = "BUY"
+    SELL = "SELL"
+    WAIT = "WAIT"
+
+@dataclass(frozen=True)
+class Candle:
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+@dataclass(frozen=True)
+class SpecialistOpinion:
+    specialist: str
+    direction: Direction
+    confidence: float
+    score: float
+    reasons: list[str]
+
+@dataclass(frozen=True)
+class RiskPlan:
+    entry: Optional[float]
+    stop_loss: Optional[float]
+    take_profit: Optional[float]
+    risk_reward: Optional[float]
+    atr: Optional[float]
+
+@dataclass(frozen=True)
+class TradeSignal:
+    symbol: str
+    timeframe: str
+    direction: Direction
+    confidence: float
+    entry: Optional[float]
+    stop_loss: Optional[float]
+    take_profit: Optional[float]
+    risk_reward: Optional[float]
+    technical_score: float
+    fundamental_score: float
+    sentiment_score: float
+    market_state: str
+    explanation: list[str]
+
+def clamp(value: float, minimum: float = -1.0, maximum: float = 1.0) -> float:
+    return max(minimum, min(maximum, value))
+
+def mean(values: Sequence[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+def ema(values: Sequence[float], period: int) -> list[float]:
+    if len(values) < period or period <= 0: return []
+    multiplier = 2 / (period + 1)
+    result = [mean(values[:period])]
+    for value in values[period:]:
+        result.append((value - result[-1]) * multiplier + result[-1])
+    return result
+
+def rsi(values: Sequence[float], period: int = 14) -> Optional[float]:
+    if len(values) <= period: return None
+    changes = [values[i] - values[i - 1] for i in range(1, len(values))]
+    recent = changes[-period:]
+    gains = [max(c, 0.0) for c in recent]
+    losses = [abs(min(c, 0.0)) for c in recent]
+    avg_gain, avg_loss = mean(gains), mean(losses)
+    if avg_loss == 0: return 100.0
+    if avg_gain == 0: return 0.0
+    return 100 - (100 / (1 + (avg_gain / avg_loss)))
+
+def true_ranges(candles: Sequence[Candle]) -> list[float]:
+    if not candles: return []
+    ranges = [candles[0].high - candles[0].low]
+    for prev, curr in zip(candles, candles[1:]):
+        ranges.append(max(curr.high - curr.low, abs(curr.high - prev.close), abs(curr.low - prev.close)))
+    return ranges
+
+def atr(candles: Sequence[Candle], period: int = 14) -> Optional[float]:
+    ranges = true_ranges(candles)
+    return mean(ranges[-period:]) if len(ranges) >= period else None
+
+def macd(values: Sequence[float]) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    fast, slow = ema(values, 12), ema(values, 26)
+    if not fast or not slow: return None, None, None
+    overlap = min(len(fast), len(slow))
+    line = [fast[-overlap + i] - slow[-overlap + i] for i in range(overlap)]
+    signal_values = ema(line, 9)
+    if not signal_values: return line[-1], None, None
+    return line[-1], signal_values[-1], line[-1] - signal_values[-1]
+
+# --- ESPECIALISTAS QUANTIAFX ---
+
+class TechnicalSpecialist:
+    def analyze(self, candles: Sequence[Candle], estrategia_texto: str = "") -> SpecialistOpinion:
+        if len(candles) < 30:
+            return SpecialistOpinion("technical", Direction.WAIT, 50.0, 0.0, ["Velas insuficientes."])
+
+        closes = [c.close for c in candles]
+        ema_fast = ema(closes, 9)[-1] if len(closes) >= 9 else closes[-1]
+        ema_slow = ema(closes, 21)[-1] if len(closes) >= 21 else closes[-1]
+        current_rsi = rsi(closes, 14) or 50.0
+        _, _, histogram = macd(closes)
+        current_atr = atr(candles, 14)
+        last_close = closes[-1]
+
+        score = 0.0
+        reasons = []
+
+        if ema_fast > ema_slow:
+            score += 0.30
+            reasons.append("EMA 9 por encima de EMA 21: estructura alcista.")
+        else:
+            score -= 0.30
+            reasons.append("EMA 9 por debajo de EMA 21: estructura bajista.")
+
+        if 52 <= current_rsi <= 70:
+            score += 0.20
+            reasons.append(f"RSI en {current_rsi:.1f}: impulso alcista controlado.")
+        elif 30 <= current_rsi <= 48:
+            score -= 0.20
+            reasons.append(f"RSI en {current_rsi:.1f}: impulso vendedor activo.")
+        elif current_rsi > 72:
+            score -= 0.15
+            reasons.append(f"RSI en {current_rsi:.1f}: zona extrema de sobrecompra.")
+        elif current_rsi < 28:
+            score += 0.15
+            reasons.append(f"RSI en {current_rsi:.1f}: zona extrema de sobreventa.")
+
+        if histogram is not None:
+            if histogram > 0: score += 0.15; reasons.append("Histograma MACD en terreno positivo.")
+            else: score -= 0.15; reasons.append("Histograma MACD en terreno negativo.")
+
+        # Modificador por regla ingresada por el usuario
+        tex = estrategia_texto.lower()
+        if "fibo" in tex or "fibonacci" in tex:
+            score *= 1.15
+            reasons.append("Confluencia de Fibonacci integrada desde consola.")
+
+        score = clamp(score)
+        direction = Direction.BUY if score >= 0.18 else Direction.SELL if score <= -0.18 else Direction.WAIT
+        confidence = min(95.0, 50.0 + abs(score) * 45.0)
+
+        return SpecialistOpinion("technical", direction, round(confidence, 2), round(score, 4), reasons)
+
+class ContextSpecialist:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def analyze(self, score: float, note: str = "") -> SpecialistOpinion:
+        score = clamp(score)
+        direction = Direction.BUY if score >= 0.15 else Direction.SELL if score <= -0.15 else Direction.WAIT
+        confidence = min(90.0, 50.0 + abs(score) * 40.0)
+        reasons = [note.strip()] if note.strip() else [f"Especialista {self.name} evaluó sesgo neutral."]
+        return SpecialistOpinion(self.name, direction, round(confidence, 2), round(score, 4), reasons)
+
+class RiskManager:
+    def __init__(self, atr_multiplier: float = 1.5, risk_reward: float = 2.0) -> None:
+        self.atr_multiplier = atr_multiplier
+        self.risk_reward = risk_reward
+
+    def build_plan(self, candles: Sequence[Candle], direction: Direction) -> RiskPlan:
+        current_atr = atr(candles, 14) or (candles[-1].close * 0.01)
+        if direction == Direction.WAIT:
+            return RiskPlan(None, None, None, None, current_atr)
+
+        entry = candles[-1].close
+        stop_distance = current_atr * self.atr_multiplier
+        target_distance = stop_distance * self.risk_reward
+
+        if direction == Direction.BUY:
+            stop_loss = entry - stop_distance
+            take_profit = entry + target_distance
+        else:
+            stop_loss = entry + stop_distance
+            take_profit = entry - target_distance
+
+        return RiskPlan(entry=entry, stop_loss=stop_loss, take_profit=take_profit, risk_reward=self.risk_reward, atr=current_atr)
+
+class DecisionEngine:
+    def __init__(self, technical_weight: float = 0.50, fundamental_weight: float = 0.25, sentiment_weight: float = 0.25, minimum_trade_score: float = 0.20) -> None:
+        self.weights = {"technical": technical_weight, "fundamental": fundamental_weight, "sentiment": sentiment_weight}
+        self.minimum_trade_score = minimum_trade_score
+
+    def decide(self, symbol: str, timeframe: str, candles: Sequence[Candle], opinions: Sequence[SpecialistOpinion], risk_manager: RiskManager) -> TradeSignal:
+        by_name = {op.specialist: op for op in opinions}
+        combined_score = sum(by_name[name].score * weight for name, weight in self.weights.items())
+        combined_score = clamp(combined_score)
+
+        directions = {op.direction for op in opinions if op.direction != Direction.WAIT}
+        conflict_penalty = 0.12 if len(directions) > 1 else 0.0
+        adjusted_score = combined_score * (1.0 - conflict_penalty)
+
+        if adjusted_score >= self.minimum_trade_score: direction = Direction.BUY
+        elif adjusted_score <= -self.minimum_trade_score: direction = Direction.SELL
+        else: direction = Direction.WAIT
+
+        confidence = 50.0 + abs(adjusted_score) * 45.0
+        if conflict_penalty: confidence -= 6.0
+        confidence = round(max(35.0, min(95.0, confidence)), 2)
+
+        plan = risk_manager.build_plan(candles, direction)
+        
+        explanation = [f"Score Combinado QuantiaFX: {adjusted_score:.3f} | Consenso: {direction.value}"]
+        for op in opinions:
+            top_r = op.reasons[0] if op.reasons else "Sin detalle."
+            explanation.append(f"{op.specialist.capitalize()} ({op.direction.value}): {top_r}")
+        if conflict_penalty:
+            explanation.append("⚠️ Advertencia: Conflicto entre especialistas detectado. Se aplicó penalización de confluencia.")
+
+        return TradeSignal(
+            symbol=symbol, timeframe=timeframe, direction=direction, confidence=confidence,
+            entry=plan.entry, stop_loss=plan.stop_loss, take_profit=plan.take_profit, risk_reward=plan.risk_reward,
+            technical_score=by_name["technical"].score, fundamental_score=by_name["fundamental"].score,
+            sentiment_score=by_name["sentiment"].score, market_state="VOLÁTIL" if (plan.atr and plan.entry and plan.atr/plan.entry > 0.015) else "ESTABLE",
+            explanation=explanation
+        )
+
+# =====================================================================
+# 🌐 INTERFAZ DE USUARIO PULPOTRADER (STREAMLIT INTEGRATION)
+# =====================================================================
+
+# Estado de la Sesión Web
 if 'capital' not in st.session_state: st.session_state.capital = 1000.0
 if 'historial' not in st.session_state: st.session_state.historial = []
 if 'trade_en_vivo' not in st.session_state: st.session_state.trade_en_vivo = None  
-if 'estrategia_activa' not in st.session_state: st.session_state.estrategia_activa = "Estrategia estándar de confluencia de canales."
-if 'sugerencia_ia' not in st.session_state: st.session_state.sugerencia_ia = "Escribe tu estrategia arriba y presiona el botón para procesar."
-if 'puntos_estrategia' not in st.session_state: st.session_state.puntos_estrategia = 0
+if 'estrategia_activa' not in st.session_state: st.session_state.estrategia_activa = "Buscar confluencia con Fibonacci y RSI."
+if 'monitores_activos' not in st.session_state: st.session_state.monitores_activos = {}
 
 activos_disponibles = {
     "Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD", "Solana (SOL)": "SOL-USD",
-    "Euro / Dólar (EUR-USD)": "EURUSD=X", "Libra / Dólar (GBP-USD)": "GBPUSD=X", "Dólar / Yen (USD-JPY)": "USDJPY=X"
+    "Euro / Dólar (EUR-USD)": "EURUSD=X", "Libra / Dólar (GBP-USD)": "GBPUSD=X"
 }
 
-# --- PANEL LATERAL FUTURISTA ---
-st.sidebar.markdown("<h2 style='color: #00ffd2; font-family: monospace;'>⚡ SYSTEM CORE</h2>", unsafe_allow_html=True)
-if st.sidebar.button("🔄 RESET ACCOUNT DATABASE", use_container_width=True):
+# --- BARRA LATERAL ---
+st.sidebar.markdown("<h2 style='color: #00ffd2; font-family: monospace;'>⚡ SYSTEM CORE v7.0</h2>", unsafe_allow_html=True)
+if st.sidebar.button("🔄 REINICIAR MEMORIA TEMPORAL", use_container_width=True):
     st.session_state.capital = 1000.0
     st.session_state.historial = []
-    st.session_state.trade_en_vivo = None
-    st.session_state.estrategia_activa = "Estrategia estándar de confluencia de canales."
-    st.session_state.sugerencia_ia = "Escribe tu estrategia arriba y presiona el botón para procesar."
-    st.session_state.puntos_estrategia = 0
-    st.sidebar.success("¡Memoria limpia con éxito!")
+    st.session_state.monitores_activos = {}
+    st.sidebar.success("¡Memoria reseteada!")
     st.rerun()
 
 activo_seleccionado = st.sidebar.selectbox("ACTIVO TARGET:", list(activos_disponibles.keys()))
 activo_ticker = activos_disponibles[activo_seleccionado]
-estilo_trading = st.sidebar.selectbox("INTERVALO QUANT:", ["Scalping (Velas 5M)", "Day Trading (Velas 15M)", "Swing Trading (Velas 1H)", "Position (Velas 1D)"])
-
-if "Scalping" in estilo_trading: periodo_yf, intervalo_yf = "1d", "5m"
-elif "Day" in estilo_trading: periodo_yf, intervalo_yf = "2d", "15m"
-elif "Swing" in estilo_trading: periodo_yf, intervalo_yf = "5d", "1h"
-else: periodo_yf, intervalo_yf = "60d", "1d"
 
 riesgo_tolerable = st.sidebar.slider("GESTIÓN DE RIESGO POR TRADE (%)", 0.5, 5.0, 2.5, step=0.5)
 umbral_seguridad = st.sidebar.slider("FILTRO QUANT DE CONFLUENCIA (%)", 50, 80, 60)
 modo_simulacion = st.sidebar.toggle("🔬 IGNORAR FILTRO TÉCNICO (MODO TEST)", value=False)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("<div style='text-align: center; color: #57606f; font-family:monospace; font-size:11px;'>PULPOTRADER ENGINE v6.2<br>DESIGNED BY RENNY GARCÍA</div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div style='text-align: center; color: #57606f; font-family:monospace; font-size:11px;'>QUANTIAFX + PULPOTRADER CORE<br>ENGINE BY RENNY GARCÍA</div>", unsafe_allow_html=True)
 
-# --- HEADER ULTRA TECNOLÓGICO ---
+# --- HEADER NEÓN ---
 st.markdown("""
 <div class="tech-card neon-header" style="text-align: center;">
-    <span style="color: #8a90a1; font-size: 11px; letter-spacing: 3px; font-weight: bold; display: block;">QUANTITATIVE TRADING TERMINAL</span>
-    <h1 style="color: #00ffd2; margin: 5px 0; font-size: 28px; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px;">🐙 PULPOTRADER LABS</h1>
+    <span style="color: #8a90a1; font-size: 11px; letter-spacing: 3px; font-weight: bold; display: block;">QUANTITATIVE TRADING TERMINAL V7.0</span>
+    <h1 style="color: #00ffd2; margin: 5px 0; font-size: 28px; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px;">🐙 PULPOTRADER LABS (QUANTIAFX INSIDE)</h1>
 </div>
 """, unsafe_allow_html=True)
 
-# =====================================================================
-# 1. MOTOR MATEMÁTICO AVANZADO (FIBONACCI & RSI PRECISION)
-# =====================================================================
-datos = yf.download(activo_ticker, period=periodo_yf, interval=intervalo_yf, progress=False)
+# Descarga de datos reales vía Yahoo Finance
+datos_raw = yf.download(activo_ticker, period="2d", interval="15m", progress=False)
 
-if not datos.empty:
-    if isinstance(datos.columns, pd.MultiIndex): datos.columns = [col[0] for col in datos.columns]
-    datos = datos.reset_index().rename(columns={'Datetime': 'Fecha', 'Date': 'Fecha'})
+candlesticks: list[Candle] = []
+if not datos_raw.empty:
+    if isinstance(datos_raw.columns, pd.MultiIndex): datos_raw.columns = [col[0] for col in datos_raw.columns]
+    datos_df = datos_raw.reset_index().rename(columns={'Datetime': 'Fecha', 'Date': 'Fecha'})
     
-    datos['EMA_9'] = datos['Close'].ewm(span=9, adjust=False).mean()
-    datos['EMA_21'] = datos['Close'].ewm(span=21, adjust=False).mean()
-    
-    delta = datos['Close'].diff()
-    up = delta.clip(lower=0)
-    down = -delta.clip(upper=0)
-    ema_up = up.ewm(com=13, adjust=False).mean()
-    ema_down = down.ewm(com=13, adjust=False).mean()
-    rs = ema_up / ema_down
-    datos['RSI'] = 100 - (100 / (1 + rs))
-    
-    datos['BB_Media'] = datos['Close'].rolling(window=20).mean()
-    datos['BB_Std'] = datos['Close'].rolling(window=20).std()
-    datos['BB_Superior'] = datos['BB_Media'] + (datos['BB_Std'] * 2)
-    datos['BB_Inferior'] = datos['BB_Media'] - (datos['BB_Std'] * 2)
-    datos['MACD'] = datos['Close'].ewm(span=12, adjust=False).mean() - datos['Close'].ewm(span=26, adjust=False).mean()
-    datos['MACD_Señal'] = datos['MACD'].ewm(span=9, adjust=False).mean()
-    datos['MACD_Hist'] = datos['MACD'] - datos['MACD_Señal']
-    
-    precio_max = float(datos['High'].max())
-    precio_min = float(datos['Low'].min())
-    rango_fibo = precio_max - precio_min
-    fibo_618 = precio_max - (rango_fibo * 0.618)
-    fibo_786 = precio_max - (rango_fibo * 0.786)
-    
-    precio_actual = float(datos['Close'].iloc[-1])
-    rsi_actual = float(datos['RSI'].iloc[-1]) if not pd.isna(datos['RSI'].iloc[-1]) else 50.0
-    ema_9_actual = float(datos['EMA_9'].iloc[-1])
-    ema_21_actual = float(datos['EMA_21'].iloc[-1])
-    macd_hist_actual = float(datos['MACD_Hist'].iloc[-1])
-    bb_sup_actual = float(datos['BB_Superior'].iloc[-1])
-    bb_inf_actual = float(datos['BB_Inferior'].iloc[-1])
-else:
-    precio_actual, rsi_actual, fibo_618, fibo_786 = 1850.0, 50.0, 1820.0, 1800.0
-    bb_sup_actual, bb_inf_actual, macd_hist_actual, ema_9_actual, ema_21_actual = 1900.0, 1800.0, 0.0, 1850.0, 1850.0
+    for idx, row in datos_df.iterrows():
+        candlesticks.append(Candle(
+            timestamp=str(row['Fecha']), open=float(row['Open']), high=float(row['High']),
+            low=float(row['Low']), close=float(row['Close']), volume=float(row['Volume'])
+        ))
 
 # =====================================================================
-# 2. PROCESADOR DE ESTRATEGIAS REACREATIVO (CORRECCIÓN DE ANÁLISIS)
+# EJECUCIÓN MÁQUINA DE ESPECIALISTAS QUANTIAFX
 # =====================================================================
-st.markdown("### 🧠 EXPERIMENTAL STRATEGY GENERATOR")
-texto_estrategia = st.text_area("Carga tus reglas lógicas en español:", value=st.session_state.estrategia_activa)
 
-if st.button("⚡ ANALYZE AND COMPUTE STRATEGY RULES", use_container_width=True):
-    st.session_state.estrategia_activa = texto_estrategia
-    tex = texto_estrategia.lower()
-    sug = []
-    pnts = 0
-    
-    if any(x in tex for x in ["fibo", "fibonacci", "fibonachi"]):
-        pnts += 25
-        sug.append(f"🎯 <b>FIBONACCI MATRIX ACTIVE:</b> Reglas recalculadas en la matriz. Zona de rebote optimizada en los niveles institucionales 61.8% (${round(fibo_618,2)}) y 78.6% (${round(fibo_786,2)}).")
-    if "rsi" in tex:
-        pnts += 15
-        sug.append(f"📈 <b>RSI FILTER LOADED:</b> Analizador matemático activo. RSI actual posicionado en {round(rsi_actual, 1)} ppts.")
-    if any(x in tex for x in ["soporte", "resistencia", "soportes", "resistencicas", "st"]):
-        sug.append("🛡️ <b>LIQUIDITY BUFFER:</b> Bloques de soporte/resistencia detectados en texto. Margen estructural inyectado en la orden.")
-        
-    st.session_state.sugerencia_ia = "<br><br>".join(sug) if sug else "⚠️ <b>STRATEGY DEFAULTS:</b> Reglas genéricas cargadas con éxito."
-    st.session_state.puntos_estrategia = pnts
-    st.success("¡Estrategia analizada y acoplada dinámicamente al motor técnico!")
-    st.rerun()
-
-# =====================================================================
-# 3. ANALISTA FUNDAMENTAL CON IMPRESIÓN WEB DE TITULARES
-# =====================================================================
+# 1. Analista Fundamental + Sentimiento vía RSS Noticias
 url_noticias = "https://finance.yahoo.com/news/rss"
 feed = feedparser.parse(url_noticias)
-titulares_filtrados = []
 es_forex = "=X" in activo_ticker
-keywords = ["forex", "fed", "dollar", "inflation", "rate"] if es_forex else ["bitcoin", "crypto", "ethereum", "solana", "ether"]
+keywords = ["forex", "fed", "dollar", "rate"] if es_forex else ["crypto", "bitcoin", "ethereum", "solana"]
 
-for entrada in feed.entries:
-    if any(kw in entrada.title.lower() for kw in keywords):
-        titulares_filtrados.append(entrada.title)
-    if len(titulares_filtrados) == 3: break
-if not titulares_filtrados: titulares_filtrados = [e.title for e in feed.entries[:3]]
+titulares = [e.title for e in feed.entries if any(kw in e.title.lower() for kw in keywords)][:3]
+if not titulares: titulares = [e.title for e in feed.entries[:3]]
 
-sentimiento_acumulado = 0
+sent_sum = 0.0
 noticias_render = []
+for t in titulares:
+    sc = sia.polarity_scores(t)['compound']
+    sent_sum += sc
+    lbl, col = ("FAVORABLE 👍", "#00ff87") if sc >= 0.05 else ("DESFAVORABLE 👎", "#ff3e3e") if sc <= -0.05 else ("NEUTRAL 😐", "#8b949e")
+    noticias_render.append(f"<li style='color:#ffffff; font-size:13px;'>📰 {t} — <b style='color:{col};'>{lbl}</b></li>")
 
-for t in titulares_filtrados:
-    scores = sia.polarity_scores(t)
-    compound = scores['compound']
-    sentimiento_acumulado += compound
-    
-    if compound >= 0.05: estado, color_lbl = "FAVORABLE 👍", "#00ff87"
-    elif compound <= -0.05: estado, color_lbl = "DESFAVORABLE 👎", "#ff3e3e"
-    else: estado, color_lbl = "NEUTRAL 😐", "#8b949e"
-    
-    noticias_render.append(f"<li style='margin-bottom:8px; font-size:13px; color:#ffffff;'>📰 {t} — <b style='color:{color_lbl};'>{estado}</b></li>")
+fund_score = (sent_sum / len(titulares)) if titulares else 0.0
 
-sentimiento_promedio = (sentimiento_acumulado / len(titulares_filtrados)) * 100 if titulares_filtrados else 0
+# 2. Invocación de Especialistas
+tech_spec = TechnicalSpecialist()
+fund_spec = ContextSpecialist("fundamental")
+sent_spec = ContextSpecialist("sentiment")
+risk_mgr = RiskManager(atr_multiplier=1.5, risk_reward=2.0)
+decision_engine = DecisionEngine()
 
-# =====================================================================
-# 4. FILTRO QUANT Y GESTIÓN DE RIESGO INSTITUCIONAL
-# =====================================================================
-ancho_bb = bb_sup_actual - bb_inf_actual
-posicion_bb = (precio_actual - bb_inf_actual) / ancho_bb if ancho_bb > 0 else 0.5
+texto_estrategia = st.text_area("Reglas lógicas de confluencia:", value=st.session_state.estrategia_activa)
+if st.button("⚡ ANALIZAR REGLAS Y RECALCULAR CONFLUENCIAS", use_container_width=True):
+    st.session_state.estrategia_activa = texto_estrategia
+    st.rerun()
 
-if posicion_bb < 0.40 or (ema_9_actual > ema_21_actual and macd_hist_actual > 0 and rsi_actual < 68):
-    direccion = "COMPRA (LONG)"
-    base_prob = 50.0 + (1.0 - posicion_bb) * 12.0
-else:
-    direccion = "VENTA (SHORT)"
-    base_prob = 50.0 + (posicion_bb) * 12.0
+opinions = [
+    tech_spec.analyze(candlesticks, st.session_state.estrategia_activa),
+    fund_spec.analyze(fund_score, f"Análisis fundamental con {len(titulares)} titulares procesados."),
+    sent_spec.analyze(fund_score * 0.8, "Sentimiento computado por el procesador VADER.")
+]
 
-if rsi_actual > 72 and direccion == "COMPRA (LONG)": base_prob -= 15.0
-elif rsi_actual < 28 and direccion == "VENTA (SHORT)": base_prob -= 15.0
-
-probabilidad_final = max(35.0, min(89.0, base_prob + (sentimiento_promedio * 0.05) + (st.session_state.puntos_estrategia * 0.3)))
-
-volatilidad = precio_actual * (0.0015 if es_forex else 0.015)
-stop_loss = precio_actual - volatilidad if direccion == "COMPRA (LONG)" else precio_actual + volatilidad
-take_profit = precio_actual + (volatilidad * 2.0) if direccion == "COMPRA (LONG)" else precio_actual - (volatilidad * 2.0)
-
-riesgo_usd = st.session_state.capital * (riesgo_tolerable / 100.0)
-precision_fmt = ".5f" if es_forex else ".2f"
-
-if es_forex:
-    pips = volatilidad * 10000 if not "JPY" in activo_ticker else volatilidad * 100
-    lotaje = riesgo_usd / (pips * 10) if pips > 0 else 0.01
-    lotaje_str = f"{round(max(0.01, lotaje), 2)} LOTES"
-else:
-    lotaje_crypto = riesgo_usd / volatilidad if volatilidad > 0 else 0.001
-    lotaje_str = f"{round(max(0.001, lotaje_crypto), 3)} UNIDADES"
-
-total_trades = len(st.session_state.historial)
-ganados = sum(1 for t in st.session_state.historial if t['resultado'] == "GANADA")
-win_rate = (ganados / total_trades * 100) if total_trades > 0 else 0.0
+signal = decision_engine.decide(activo_ticker, "15M", candlesticks, opinions, risk_mgr)
 
 # =====================================================================
-# 5. MAQUETACIÓN VISUAL TERMINAL
+# RENDER DE PANELES EN PANTALLA
 # =====================================================================
+
 st.markdown("<br>", unsafe_allow_html=True)
 col_izq, col_der = st.columns([2, 1])
 
 with col_izq:
+    # Render Explicación Auditable de QuantiaFX
+    html_explicacion = "<br>".join([f"• {e}" for e in signal.explanation])
     st.markdown(f"""
     <div class="tech-card" style="border-top: 3px solid #00ffd2;">
-        <span style="color: #00ffd2; font-family: monospace; font-weight: bold; font-size: 12px;">[ IA COGNITIVE ENGINE ]</span>
-        <div style="color: #f1f2f6; font-size: 13px; margin-top: 8px; line-height: 1.5;">{st.session_state.sugerencia_ia}</div>
+        <span style="color: #00ffd2; font-family: monospace; font-weight: bold; font-size: 12px;">[ DECISION ENGINE — AUDITORÍA DE ESPECIALISTAS ]</span>
+        <div style="color: #f1f2f6; font-size: 13px; margin-top: 8px; line-height: 1.5;">{html_explicacion}</div>
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("### 📋 METATRADER 5 ORDER PARAMETERS")
-    clase_neon = "neon-buy" if direccion == "COMPRA (LONG)" else "neon-sell"
-    color_dir = "#00ff87" if direccion == "COMPRA (LONG)" else "#ff3e3e"
+    # Ficha MetaTrader
+    clase_neon = "neon-buy" if signal.direction == Direction.BUY else "neon-sell" if signal.direction == Direction.SELL else ""
+    color_dir = "#00ff87" if signal.direction == Direction.BUY else "#ff3e3e" if signal.direction == Direction.SELL else "#8b949e"
     
-    html_terminal = f"""
+    precio_act = candlesticks[-1].close if candlesticks else 0.0
+    riesgo_usd = st.session_state.capital * (riesgo_tolerable / 100.0)
+    volatilidad_atr = (signal.stop_loss - precio_act) if signal.stop_loss else (precio_act * 0.01)
+    lotaje_val = abs(riesgo_usd / volatilidad_atr) if volatilidad_atr != 0 else 0.01
+    
+    st.markdown(f"""
     <div class="tech-card {clase_neon}">
-        <table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 14px;">
+        <table style="width:100%; font-family:'JetBrains Mono', monospace; font-size:14px;">
             <tr style="border-bottom: 1px solid #21262d;">
-                <td style="color: #8b949e; padding: 6px 0;">SYMBOL:</td>
-                <td style="color: #ffffff; text-align: right; font-weight: bold;">{activo_ticker.replace('=X','')}</td>
+                <td style="color:#8b949e;">SYMBOL: {activo_ticker}</td>
+                <td style="text-align:right; color:{color_dir}; font-weight:bold; font-size:16px;">{signal.direction.value} MARKET</td>
             </tr>
             <tr style="border-bottom: 1px solid #21262d;">
-                <td style="color: #8b949e; padding: 6px 0;">ORDER TYPE:</td>
-                <td style="color: {color_dir}; text-align: right; font-weight: bold; font-size: 16px;">{ "BUY MARKET" if direccion == "COMPRA (LONG)" else "SELL MARKET" }</td>
-            </tr>
-            <tr style="border-bottom: 1px solid #21262d; background-color: rgba(0,255,210,0.03);">
-                <td style="color: #00ffd2; padding: 8px 0; font-weight: bold;">📊 COMPUTED LOTSIZE:</td>
-                <td style="color: #00ffd2; text-align: right; font-weight: bold; font-size: 15px;">{lotaje_str}</td>
+                <td style="color:#00ffd2;">📊 CALCULATED LOTSIZE:</td>
+                <td style="text-align:right; color:#00ffd2; font-weight:bold;">{round(lotaje_val, 2)} UNIDADES</td>
             </tr>
             <tr>
-                <td style="color: #ffffff; padding: 10px 0; font-weight: bold;">🟢 EXECUTION PRICE:</td>
-                <td style="color: #ffffff; text-align: right; font-weight: bold; font-size: 18px;">{format(precio_actual, precision_fmt)}</td>
+                <td style="color:#ffffff;">🟢 ENTRY PRICE:</td>
+                <td style="text-align:right; color:#ffffff; font-weight:bold;">{round(precio_act, 4)}</td>
             </tr>
-            <tr>
-                <td style="color: #00ff87; padding: 10px 0; font-weight: bold;">🎯 TARGET PROFIT (TP):</td>
-                <td style="color: #00ff87; text-align: right; font-weight: bold; font-size: 18px;">{format(take_profit, precision_fmt)}</td>
+            <tr style="color:#00ff87;">
+                <td>🎯 TARGET PROFIT (TP - ATR Dynamic):</td>
+                <td style="text-align:right; font-weight:bold;">{round(signal.take_profit, 4) if signal.take_profit else 'N/A'}</td>
             </tr>
-            <tr>
-                <td style="color: #ff3e3e; padding: 10px 0; font-weight: bold;">🔴 INVALIDATION LOSS (SL):</td>
-                <td style="color: #ff3e3e; text-align: right; font-weight: bold; font-size: 18px;">{format(stop_loss, precision_fmt)}</td>
+            <tr style="color:#ff3e3e;">
+                <td>🔴 STOP LOSS (SL - ATR Dynamic):</td>
+                <td style="text-align:right; font-weight:bold;">{round(signal.stop_loss, 4) if signal.stop_loss else 'N/A'}</td>
             </tr>
         </table>
     </div>
-    """
-    st.markdown(html_terminal, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 with col_der:
     st.markdown("### 🚨 TELEMETRÍA DE RIESGO")
-    st.markdown(f"""
-    <div class="tech-card" style="text-align: center;">
-        <span style="color: #8b949e; font-size: 12px; display: block; font-family: monospace;">NET CAPITAL DEPLOYED</span>
-        <h2 style="color: #ffffff; margin: 5px 0; font-size: 26px; font-family: 'JetBrains Mono', monospace;">${round(st.session_state.capital, 2)}</h2>
-        <span style="color: #8b949e; font-size: 12px; display: block; margin-top: 10px; font-family: monospace;">GLOBAL WIN RATE</span>
-        <h2 style="color: #00ffd2; margin: 5px 0; font-size: 26px; font-family: 'JetBrains Mono', monospace;">{round(win_rate, 1)}%</h2>
-        <span style="color: #8b949e; font-size: 11px; display: block; margin-top: 10px; font-family: monospace;">SIGNAL CONFLUENCE WEIGHT</span>
-        <h3 style="color: #ffffff; margin: 0; font-size: 18px;">{round(probabilidad_final, 1)}%</h3>
-    </div>
-    """, unsafe_allow_html=True)
+    st.metric("💵 CAPITAL DISPONIBLE", f"${round(st.session_state.capital, 2)} USD")
+    st.metric("🎯 CONFLUENCIA DE ESPECIALISTAS", f"{signal.confidence}%")
+    st.metric("📈 ESTADO DE MERCADO", signal.market_state)
     
-    aprobado = probabilidad_final >= umbral_seguridad
-    if aprobado or modo_simulacion:
-        if st.session_state.trade_en_vivo is None:
-            if st.button("⚡ TRANSMIT SIGNAL TO SIMULATOR", use_container_width=True):
-                st.session_state.trade_en_vivo = {
-                    "activo": activo_seleccionado, "tipo": direccion, "precio_entrada": precio_actual,
-                    "tp": take_profit, "sl": stop_loss, "riesgo_usd": riesgo_usd, "probabilidad": probabilidad_final
-                }
-                st.rerun()
-        else:
-            st.button("⏳ SIMULATION STREAMING INJECTED...", disabled=True, use_container_width=True)
-    else:
-        st.warning(f"⚠️ CONFLUENCIA INSUFICIENTE: Filtro mínimo requerido ({umbral_seguridad}%) superior al peso analizado.")
+    if (signal.confidence >= umbral_seguridad and signal.direction != Direction.WAIT) or modo_simulacion:
+        if st.button("⚡ TRANSMITIR SEÑAL A PANTALLA EN VIVO", use_container_width=True):
+            st.session_state.monitores_activos[activo_ticker] = {
+                "tipo": signal.direction.value, "entrada": precio_act,
+                "tp": signal.take_profit, "sl": signal.stop_loss,
+                "riesgo_usd": riesgo_usd, "timestamp": datetime.now().strftime("%H:%M:%S")
+            }
+            st.success(f"¡Señal abierta para {activo_ticker}!")
+            st.rerun()
 
 # =====================================================================
-# 6. SEGUIMIENTO ALGORÍTMICO EN TIEMPO REAL COHERENTE
+# MONITOREO DE GRÁFICOS INDEPENDIENTES Y NOTICIAS
 # =====================================================================
-if st.session_state.trade_en_vivo is not None:
-    trade = st.session_state.trade_en_vivo
+if st.session_state.monitores_activos:
     st.markdown("---")
-    st.markdown("<h3 style='color: #00ffd2; font-family: monospace;'>⏳ REAL-TIME PRICE STREAMING RADAR (TICK-BY-TICK)</h3>", unsafe_allow_html=True)
+    st.markdown("## 🖥️ PANTALLAS DE SEGUIMIENTO EN TIEMPO REAL")
     
-    radar_placeholder = st.empty()
-    precio_movil = trade['precio_entrada']
-    pasos = 8
+    lista_tickers = list(st.session_state.monitores_activos.keys())
+    tabs = st.tabs(lista_tickers)
     
-    for i in range(pasos):
-        time.sleep(0.6)
-        factor = random.choice([-1.8, -0.6, 0.4, 1.1, 1.9])
-        delta_p = (trade['precio_entrada'] * 0.0018) * factor
-        precio_movil += (delta_p if trade['tipo'] == "COMPRA (LONG)" else -delta_p)
-        
-        toco_tp = (trade['tipo'] == "COMPRA (LONG)" and precio_movil >= trade['tp']) or (trade['tipo'] == "VENTA (SHORT)" and precio_movil <= trade['tp'])
-        toco_sl = (trade['tipo'] == "COMPRA (LONG)" and precio_movil <= trade['sl']) or (trade['tipo'] == "VENTA (SHORT)" and precio_movil >= trade['sl'])
-        
-        if trade['tipo'] == "COMPRA (LONG)":
-            pnl_flotante_pct = ((precio_movil - trade['precio_entrada']) / trade['precio_entrada']) * 100
-        else:
-            pnl_flotante_pct = ((trade['precio_entrada'] - precio_movil) / trade['precio_entrada']) * 100
+    for idx, tick in enumerate(lista_tickers):
+        with tabs[idx]:
+            m_info = st.session_state.monitores_activos[tick]
+            c1, c2, c3 = st.columns([1, 1, 2])
+            c1.write(f"**Operación:** {m_info['tipo']} | **Entrada:** `${round(m_info['entrada'], 4)}`")
+            tf_sel = c2.selectbox(f"Velas ({tick}):", ["5m", "15m", "30m"], key=f"tf_{tick}")
             
-        pnl_flotante_usd = trade['riesgo_usd'] * (pnl_flotante_pct / (volatilidad / trade['precio_entrada'] * 100))
-        color_pnl = "#00ff87" if pnl_flotante_usd >= 0 else "#ff3e3e"
-        signo = "+" if pnl_flotante_usd >= 0 else ""
-        
-        with radar_placeholder.container():
-            st.markdown(f"""
-            <div class="tech-card" style="border: 1px solid #f39c12; background-color: rgba(243, 156, 18, 0.02);">
-                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size:13px;">
-                    <div>🎯 ORDEN CARGADA: <span style="color:#ffffff;">{format(trade['precio_entrada'], precision_fmt)}</span></div>
-                    <div>📡 TICK ACTUAL: <span style="color:#f39c12; font-weight:bold;">{format(precio_movil, precision_fmt)}</span></div>
-                    <div>📊 PnL EN VIVO: <span style="color:{color_pnl}; font-weight:bold;">{signo}${round(pnl_flotante_usd, 2)} USD</span></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.progress((i + 1) / pasos)
+            if c3.button(f"🔴 CERRAR Y REGISTRAR EN BITÁCORA ({tick})", key=f"close_{tick}"):
+                exito = random.choice([True, False])
+                res_str = "GANADA" if exito else "PERDIDA"
+                st.session_state.capital += (m_info['riesgo_usd'] * 1.9) if exito else -m_info['riesgo_usd']
+                
+                st.session_state.historial.insert(0, {
+                    "fecha": m_info['timestamp'], "activo": tick, "tipo": m_info['tipo'],
+                    "precio": f"${round(m_info['entrada'], 4)}", "riesgo": f"${round(m_info['riesgo_usd'], 2)}",
+                    "resultado": res_str, "balance": f"${round(st.session_state.capital, 2)}"
+                })
+                del st.session_state.monitores_activos[tick]
+                st.rerun()
             
-        if toco_tp or toco_sl: break
+            d_chart = yf.download(tick, period="1d", interval=tf_sel, progress=False)
+            if not d_chart.empty:
+                if isinstance(d_chart.columns, pd.MultiIndex): d_chart.columns = [c[0] for c in d_chart.columns]
+                d_chart = d_chart.reset_index().rename(columns={'Datetime': 'Fecha', 'Date': 'Fecha'})
+                
+                fig = go.Figure()
+                fig.add_trace(go.Candlestick(x=d_chart['Fecha'], open=d_chart['Open'], high=d_chart['High'], low=d_chart['Low'], close=d_chart['Close']))
+                if m_info['entrada']: fig.add_hline(y=m_info['entrada'], line_color="white", line_dash="dash", annotation_text="ENTRADA")
+                if m_info['tp']: fig.add_hline(y=m_info['tp'], line_color="#00ff87", line_width=2, annotation_text="TARGET TP")
+                if m_info['sl']: fig.add_hline(y=m_info['sl'], line_color="#ff3e3e", line_width=2, annotation_text="STOP SL")
+                
+                fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117", height=380, margin=dict(l=10,r=10,t=10,b=10))
+                st.plotly_chart(fig, use_container_width=True, key=f"g_{tick}")
 
-    exito = toco_tp if (toco_tp or toco_sl) else (random.randint(1, 100) <= trade['probabilidad'])
-    resultado_final = "GANADA" if exito else "PERDIDA"
-    
-    st.session_state.capital += (trade['riesgo_usd'] * 1.9) if exito else -trade['riesgo_usd']
-    
-    nuevo_t = {
-        "fecha": datetime.now().strftime("%H:%M:%S"), "activo": trade['activo'], "tipo": trade['tipo'],
-        "precio": f"${format(trade['precio_entrada'], precision_fmt)}", "riesgo": f"${round(trade['riesgo_usd'], 2)}",
-        "resultado": resultado_final, "balance": f"${round(st.session_state.capital, 2)}"
-    }
-    
-    # Inyección forzada en la memoria temporal web
-    st.session_state.historial.insert(0, nuevo_t)
-    st.session_state.trade_en_vivo = None 
-    st.rerun()
+st.markdown(f'<div class="tech-card neon-news"><span style="color:#f39c12; font-family:monospace; font-weight:bold; font-size:12px;">[ ENGINE FUNDAMENTAL STREAM — YAHOO FINANCE ]</span><ul style="margin-top:10px;">{"".join(noticias_render)}</ul></div>', unsafe_allow_html=True)
 
-# =====================================================================
-# PANEL DE GRÁFICO PROFESIONAL CALIBRADO
-# =====================================================================
-st.markdown("---")
-st.markdown(f"### 📊 QUANTITATIVE SUPPORT CHARTS")
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.7, 0.3])
-
-fig.add_trace(go.Candlestick(x=datos['Fecha'], open=datos['Open'], high=datos['High'], low=datos['Low'], close=datos['Close'], name="Precio"), row=1, col=1)
-fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Superior'], line=dict(color='rgba(0, 255, 210, 0.12)', width=1, dash='dot'), name="BB Sup"), row=1, col=1)
-fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['BB_Inferior'], line=dict(color='rgba(0, 255, 210, 0.12)', width=1, dash='dot'), name="BB Inf"), row=1, col=1)
-
-if any(x in st.session_state.estrategia_activa.lower() for x in ["fibo", "fibonacci", "fibonachi"]) and not datos.empty:
-    fig.add_hline(y=precio_max, line_color="rgba(231, 76, 60, 0.2)", line_width=1, annotation_text="Fibo Max 0.0%", row=1, col=1)
-    fig.add_hline(y=fibo_618, line_color="#00ff87", line_width=1.5, annotation_text="ZONA ORO 61.8%", row=1, col=1)
-    fig.add_hline(y=fibo_786, line_color="#00ffd2", line_width=1.5, annotation_text="QUANT LEVEL 78.6%", row=1, col=1)
-    fig.add_hline(y=precio_min, line_color="rgba(149, 165, 166, 0.2)", line_width=1, annotation_text="Fibo Min 100.0%", row=1, col=1)
-
-fig.add_trace(go.Scatter(x=datos['Fecha'], y=datos['MACD'], line=dict(color='#00ffd2', width=1), name="MACD"), row=2, col=1)
-colores_hist = ['#00ff87' if val >= 0 else '#ff3e3e' for val in datos['MACD_Hist']] if not datos.empty else []
-fig.add_trace(go.Bar(x=datos['Fecha'], y=datos['MACD_Hist'], marker_color=colores_hist, name="Hist"), row=2, col=1)
-
-fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117", font=dict(color="#c9d1d9"), height=480, margin=dict(l=10, r=10, t=10, b=10))
-st.plotly_chart(fig, use_container_width=True)
-
-# =====================================================================
-# 7. NUEVO VISUALIZADOR FUNDAMENTAL DE TITULARES REALES
-# =====================================================================
-st.markdown(f"""
-<div class="tech-card neon-news">
-    <span style="color: #f39c12; font-family: monospace; font-weight: bold; font-size: 12px;">[ ENGINE FUNDAMENTAL STREAM — TITULARES EVALUADOS POR IA ]</span>
-    <ul style="margin-top: 10px; padding-left: 20px; list-style-type: square;">
-        {"".join(noticias_render)}
-    </ul>
-</div>
-""", unsafe_allow_html=True)
-
-st.subheader("📋 HISTORICAL TRANSACTION LOG")
-if st.session_state.historial:
-    st.dataframe(pd.DataFrame(st.session_state.historial), use_container_width=True)
-else:
-    st.info("No hay transacciones registradas en la memoria de la sesión actual.")
+st.subheader("📋 HISTORIAL DE OPERACIONES AUDITABLES")
+if st.session_state.historial: st.dataframe(pd.DataFrame(st.session_state.historial), use_container_width=True)
+else: st.info("No hay transacciones registradas en esta sesión de trabajo.")
